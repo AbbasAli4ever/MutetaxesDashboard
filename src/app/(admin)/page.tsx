@@ -1,0 +1,50 @@
+import { EcommerceMetrics } from "@/components/ecommerce/EcommerceMetrics";
+import React from "react";
+import MonthlyTarget from "@/components/ecommerce/MonthlyTarget";
+import MonthlySalesChart from "@/components/ecommerce/MonthlySalesChart";
+import StatisticsChart from "@/components/ecommerce/StatisticsChart";
+import RecentOrders from "@/components/ecommerce/RecentOrders";
+import DemographicCard from "@/components/ecommerce/DemographicCard";
+import UpcomingDeadlines from "@/components/ecommerce/UpcomingDeadlines";
+import RecentActivities from "@/components/ecommerce/RecentActivities";
+import ComplianceStatus from "@/components/ecommerce/ComplianceStatus";
+import AssistanceAlert from "@/components/ecommerce/AssistanceAlert";
+export default function Ecommerce() {
+  return (
+    <div className="grid grid-cols-12 gap-4 md:gap-6">
+      <div className="col-span-12 space-y-6">
+        <EcommerceMetrics />
+
+        {/* <MonthlySalesChart /> */}
+      </div>
+
+      {/* <div className="col-span-12 xl:col-span-5">
+        <MonthlyTarget />
+      </div> */}
+
+      <div className="col-span-12">
+        <StatisticsChart />
+      </div>
+
+      {/* Three Cards Row */}
+      <div className="col-span-12 grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2 xl:grid-cols-3">
+        <UpcomingDeadlines />
+        <RecentActivities />
+        <ComplianceStatus />
+      </div>
+
+      {/* Assistance Alert */}
+      <div className="col-span-12">
+        <AssistanceAlert />
+      </div>
+
+      {/* <div className="col-span-12 xl:col-span-5">
+        <DemographicCard />
+      </div>
+
+      <div className="col-span-12 xl:col-span-7">
+        <RecentOrders />
+      </div> */}
+    </div>
+  );
+}
