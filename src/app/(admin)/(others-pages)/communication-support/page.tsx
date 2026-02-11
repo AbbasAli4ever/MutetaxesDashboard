@@ -1,10 +1,6 @@
-import CommunicationSupportContent from "@/components/communication-support/CommunicationSupportContent";
-import { Metadata } from "next";
+"use client";
 
-export const metadata: Metadata = {
-  title: "Communication & Support | MuteTaxes",
-  description: "Connect with your accountant and get support",
-};
+import CommunicationSupportContent from "@/components/communication-support/CommunicationSupportContent";
 
 export default function CommunicationSupport() {
   return <CommunicationSupportContent />;

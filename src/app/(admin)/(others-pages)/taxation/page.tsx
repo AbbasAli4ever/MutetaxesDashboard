@@ -1,11 +1,10 @@
-import TaxationContent from "@/components/taxation/TaxationContent";
-import { Metadata } from "next";
+"use client";
 
-export const metadata: Metadata = {
-  title: "Taxation | MuteTaxes",
-  description: "Manage your Hong Kong tax obligations",
-};
+import { useRole } from "@/context/RoleContext";
+import TaxationContent from "@/components/taxation/TaxationContent";
+import ReportsContent from "@/components/reports/ReportsContent";
 
 export default function Taxation() {
-  return <TaxationContent />;
+  const { role } = useRole();
+  return role === "admin" ? <ReportsContent /> : <TaxationContent />;
 }

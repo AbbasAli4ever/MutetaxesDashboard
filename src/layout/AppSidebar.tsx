@@ -23,8 +23,15 @@ import {
   LuBuilding2,
   LuFileText,
   LuMessagesSquare,
+  LuShield,
+  LuClipboardList,
+  LuUsers,
+  LuDollarSign,
+  LuChartBar,
+  LuTicket,
 } from "react-icons/lu";
 import SidebarWidget from "./SidebarWidget";
+import { useRole } from "@/context/RoleContext";
 
 type NavItem = {
   name: string;
@@ -33,7 +40,7 @@ type NavItem = {
   subItems?: { name: string; path: string; pro?: boolean; new?: boolean }[];
 };
 
-const navItems: NavItem[] = [
+const userNavItems: NavItem[] = [
   {
     icon: <GridIcon />,
     name: "Dashboard",
@@ -64,15 +71,53 @@ const navItems: NavItem[] = [
     name: "Communication & Support",
     path: "/communication-support",
   },
-  // {
-  //   icon: <CalenderIcon />,
-  //   name: "Calendar",
-  //   path: "/calendar",
-  // },
   {
     icon: <UserCircleIcon />,
     name: "Profile & Settings",
     path: "/profile",
+  },
+];
+
+const adminNavItems: NavItem[] = [
+  {
+    icon: <GridIcon />,
+    name: "Dashboard",
+    path: "/",
+  },
+  {
+    icon: <LuClipboardList className="w-6 h-6" />,
+    name: "Registrations",
+    path: "/registrations",
+  },
+  {
+    icon: <LuUsers className="w-6 h-6" />,
+    name: "User Management",
+    path: "/user-management",
+  },
+  {
+    icon: <LuDollarSign className="w-6 h-6" />,
+    name: "Payments",
+    path: "/payments",
+  },
+  {
+    icon: <LuShield className="w-6 h-6" />,
+    name: "Compliance",
+    path: "/accounting-reports",
+  },
+  {
+    icon: <LuChartBar className="w-6 h-6" />,
+    name: "Reports",
+    path: "/taxation",
+  },
+  {
+    icon: <LuMessagesSquare className="w-6 h-6" />,
+    name: "Messages",
+    path: "/messages",
+  },
+  {
+    icon: <LuTicket className="w-6 h-6" />,
+    name: "Support Tickets",
+    path: "/support-tickets",
   },
 
   // {
@@ -128,7 +173,9 @@ const navItems: NavItem[] = [
 
 const AppSidebar: React.FC = () => {
   const { isExpanded, isMobileOpen, isHovered, setIsHovered } = useSidebar();
+  const { role } = useRole();
   const pathname = usePathname();
+  const navItems = role === "admin" ? adminNavItems : userNavItems;
 
   const renderMenuItems = (
     navItems: NavItem[],
