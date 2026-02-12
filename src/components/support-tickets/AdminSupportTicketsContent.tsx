@@ -5,8 +5,11 @@ import {
   LuPlus,
   LuEye,
   LuPaperclip,
+  LuPencil,
   LuSend,
   LuX,
+  LuChevronDown,
+  LuCheck,
 } from "react-icons/lu";
 import { FaRegUser } from "react-icons/fa";
 
@@ -132,6 +135,162 @@ const initialTickets: Ticket[] = [
   },
 ];
 
+const ASSIGNEES = [
+  "Emily Rodriguez",
+  "James Carter",
+  "Sarah Mitchell",
+  "David Lee",
+  "Unassigned",
+];
+
+// ── Custom Select ──────────────────────────────────────────────────────────
+const CustomSelect: React.FC<{
+  value: string;
+  options: string[];
+  onChange: (val: string) => void;
+}> = ({ value, options, onChange }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  return (
+    <div ref={ref} className="relative w-full">
+      <button
+        type="button"
+        onClick={() => setOpen((p) => !p)}
+        className="flex w-full items-center justify-between gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-normal text-gray-800 transition-all hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:border-gray-600"
+      >
+        <span>{value}</span>
+        <LuChevronDown className={`h-4 w-4 shrink-0 text-gray-400 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full z-99999 mt-1.5 w-full overflow-hidden rounded-lg border border-gray-200 bg-white shadow-theme-lg dark:border-gray-700 dark:bg-gray-800">
+          {options.map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => { onChange(opt); setOpen(false); }}
+              className={`flex w-full items-center justify-between gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
+                opt === value
+                  ? "bg-gray-100 text-gray-900 dark:bg-gray-700/60 dark:text-white"
+                  : "text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700/40"
+              }`}
+            >
+              <span>{opt}</span>
+              {opt === value && <LuCheck className="h-4 w-4 shrink-0 text-gray-500 dark:text-gray-400" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Edit Ticket Modal ───────────────────────────────────────────────────────
+const EditTicketModal: React.FC<{
+  ticket: Ticket;
+  onClose: () => void;
+  onSave: (updated: Ticket) => void;
+}> = ({ ticket, onClose, onSave }) => {
+  const [title, setTitle] = useState(ticket.title);
+  const [priority, setPriority] = useState<TicketPriority>(ticket.priority);
+  const [status, setStatus] = useState<TicketStatus>(ticket.status);
+  const [assignedTo, setAssignedTo] = useState(ticket.assignedTo);
+
+  const handleUpdate = () => {
+    onSave({ ...ticket, title: title.trim() || ticket.title, priority, status, assignedTo });
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-99999 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white shadow-2xl dark:border-gray-800 dark:bg-gray-900">
+
+        {/* Header */}
+        <div className="flex items-start justify-between p-6 pb-4 border-b border-gray-100 dark:border-gray-800">
+          <div className="flex items-center gap-3">
+            <LuPencil className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+            <div>
+              <h3 className="text-base font-semibold text-gray-900 dark:text-white">Edit Ticket</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Update the details of the selected ticket</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300 transition-colors"
+          >
+            <LuX className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="p-6 space-y-5">
+          <div>
+            <label className="text-sm font-semibold text-gray-800 dark:text-gray-200">Title</label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="mt-2 h-11 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-700 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+            />
+          </div>
+
+          <div>
+            <label className="text-sm font-semibold text-gray-800 dark:text-gray-200">Priority</label>
+            <div className="mt-2">
+              <CustomSelect
+                value={priority}
+                options={["High", "Medium", "Low"]}
+                onChange={(val) => setPriority(val as TicketPriority)}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-sm font-semibold text-gray-800 dark:text-gray-200">Status</label>
+            <div className="mt-2">
+              <CustomSelect
+                value={status}
+                options={["Open", "In Progress", "Resolved"]}
+                onChange={(val) => setStatus(val as TicketStatus)}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-sm font-semibold text-gray-800 dark:text-gray-200">Assigned To</label>
+            <div className="mt-2">
+              <CustomSelect
+                value={assignedTo}
+                options={ASSIGNEES}
+                onChange={(val) => setAssignedTo(val)}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 pb-6">
+          <button
+            onClick={handleUpdate}
+            className="w-full rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-brand-600"
+          >
+            Update Ticket
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const autoReplies = [
   "Thank you for your response. I'll review and get back to you shortly.",
   "Understood. Let me check on that for you right away.",
@@ -144,6 +303,7 @@ const AdminSupportTicketsContent: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [tickets, setTickets] = useState<Ticket[]>(initialTickets);
   const [activeTicketId, setActiveTicketId] = useState<string | null>(null);
+  const [editingTicket, setEditingTicket] = useState<Ticket | null>(null);
   const [messageInput, setMessageInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const replyTimeouts = useRef<number[]>([]);
@@ -360,12 +520,20 @@ const AdminSupportTicketsContent: React.FC = () => {
                       <span className="text-sm text-gray-600 dark:text-gray-400">{ticket.assignedTo}</span>
                     </td>
                     <td className="px-4 py-4 whitespace-nowrap">
-                      <button
-                        onClick={() => handleOpenTicket(ticket)}
-                        className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300 transition-colors"
-                      >
-                        <LuEye className="h-4 w-4" />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setEditingTicket(ticket)}
+                          className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300 transition-colors"
+                        >
+                          <LuPencil className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => handleOpenTicket(ticket)}
+                          className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300 transition-colors"
+                        >
+                          <LuEye className="h-4 w-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -374,6 +542,18 @@ const AdminSupportTicketsContent: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {/* ── Edit Ticket Modal ─────────────────────────────────────────────── */}
+      {editingTicket && (
+        <EditTicketModal
+          ticket={editingTicket}
+          onClose={() => setEditingTicket(null)}
+          onSave={(updated) => {
+            setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+            setEditingTicket(null);
+          }}
+        />
+      )}
 
       {/* ── Ticket Conversation Modal ──────────────────────────────────────── */}
       {currentTicket && (
