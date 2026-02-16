@@ -12,6 +12,71 @@ import {
   LuCheck,
   LuX,
 } from "react-icons/lu";
+import {
+  ModulePermissionProvider,
+  useModulePermission,
+} from "@/context/PermissionContext";
+
+function RegisterButton() {
+  const { can } = useModulePermission();
+  const canCreate = can("CREATE");
+
+  return (
+    <button
+      disabled={!canCreate}
+      className="inline-flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-brand-500"
+    >
+      <LuPlus className="w-5 h-5" />
+      Register a New Company
+    </button>
+  );
+}
+
+function RegistrationActionsCell({
+  onView,
+  onEdit,
+}: {
+  onView: () => void;
+  onEdit: () => void;
+}) {
+  const { can } = useModulePermission();
+  const canRead = can("READ");
+  const canUpdate = can("UPDATE");
+  const canDelete = can("DELETE");
+  // const noneAllowed = !canRead && !canUpdate && !canDelete;
+
+  // if (noneAllowed) {
+  //   return <em className="text-xs text-gray-400 dark:text-gray-600 italic">Restricted</em>;
+  // }
+
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        onClick={canRead ? onView : undefined}
+        disabled={!canRead}
+        className="p-2 text-gray-600 hover:text-brand-500 dark:text-gray-400 dark:hover:text-brand-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-gray-600 dark:disabled:hover:text-gray-400"
+        title="View"
+      >
+        <LuEye className="w-5 h-5" />
+      </button>
+      <button
+        onClick={canUpdate ? onEdit : undefined}
+        disabled={!canUpdate}
+        className="p-2 text-gray-600 hover:text-brand-500 dark:text-gray-400 dark:hover:text-brand-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-gray-600 dark:disabled:hover:text-gray-400"
+        title="Edit"
+      >
+        <LuPencil className="w-5 h-5" />
+      </button>
+      <button
+        
+        className="p-2 text-gray-600 hover:text-brand-500 dark:text-gray-400 dark:hover:text-brand-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-gray-600 dark:disabled:hover:text-gray-400"
+        title="Download"
+      >
+        <LuDownload className="w-5 h-5" />
+      </button>
+    </div>
+  );
+}
 
 interface Document {
   name: string;
@@ -169,16 +234,14 @@ export default function Registrations() {
   };
 
   return (
+    <ModulePermissionProvider module="REGISTRATIONS">
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Registrations</h1>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Manage all registration cases</p>
         </div>
-        <button className="inline-flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium rounded-lg transition-colors">
-          <LuPlus className="w-5 h-5" />
-          Register a New Company
-        </button>
+        <RegisterButton />
       </div>
 
       <div className="relative max-w-[720px] lg:max-w-[680px] xl:max-w-full rounded-xl bg-white dark:bg-gray-900 shadow-theme-sm border border-gray-200 dark:border-gray-800">
@@ -265,11 +328,10 @@ export default function Registrations() {
                     </div>
                   </td>
                   <td className="px-4 py-4 whitespace-nowrap">
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => handleViewDetails(registration)} className="p-2 text-gray-600 hover:text-brand-500 dark:text-gray-400 dark:hover:text-brand-400 transition-colors" title="View"><LuEye className="w-5 h-5" /></button>
-                      <button onClick={() => handleEditClick(registration)} className="p-2 text-gray-600 hover:text-brand-500 dark:text-gray-400 dark:hover:text-brand-400 transition-colors" title="Edit"><LuPencil className="w-5 h-5" /></button>
-                      <button className="p-2 text-gray-600 hover:text-brand-500 dark:text-gray-400 dark:hover:text-brand-400 transition-colors" title="Download"><LuDownload className="w-5 h-5" /></button>
-                    </div>
+                    <RegistrationActionsCell
+                      onView={() => handleViewDetails(registration)}
+                      onEdit={() => handleEditClick(registration)}
+                    />
                   </td>
                 </tr>
               ))}
@@ -407,5 +469,6 @@ export default function Registrations() {
         </div>
       )}
     </div>
+    </ModulePermissionProvider>
   );
 }
