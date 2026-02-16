@@ -48,7 +48,7 @@ const userNavItems: NavItem[] = [
   {
     icon: <GridIcon />,
     name: "Dashboard",
-    path: "/",
+    path: "/dashboard",
   },
   {
     icon: <LuBuilding2 className="w-6 h-6" />,
@@ -86,55 +86,55 @@ const adminNavItems: NavItem[] = [
   {
     icon: <GridIcon />,
     name: "Dashboard",
-    path: "/",
+    path: "/admin/dashboard",
     // No permissionModule - Dashboard is always visible for admins
   },
   {
     icon: <LuClipboardList className="w-6 h-6" />,
     name: "Registrations",
-    path: "/registrations",
+    path: "/admin/registrations",
     permissionModule: "REGISTRATIONS",
   },
   {
     icon: <LuUsers className="w-6 h-6" />,
     name: "User Management",
-    path: "/user-management",
+    path: "/admin/user-management",
     permissionModule: "USER_MANAGEMENT",
   },
   {
     icon: <LuDollarSign className="w-6 h-6" />,
     name: "Payments",
-    path: "/payments",
+    path: "/admin/payments",
     permissionModule: "PAYMENTS",
   },
   {
     icon: <LuShield className="w-6 h-6" />,
     name: "Compliance",
-    path: "/accounting-reports",
+    path: "/admin/accounting-reports",
     permissionModule: "COMPLIANCE",
   },
   {
     icon: <LuChartBar className="w-6 h-6" />,
     name: "Reports",
-    path: "/taxation",
+    path: "/admin/taxation",
     permissionModule: "REPORTS",
   },
   {
     icon: <LuMessagesSquare className="w-6 h-6" />,
     name: "Messages",
-    path: "/messages",
+    path: "/admin/messages",
     permissionModule: "MESSAGES",
   },
   {
     icon: <LuTicket className="w-6 h-6" />,
     name: "Support Tickets",
-    path: "/support-tickets",
+    path: "/admin/support-tickets",
     permissionModule: "SUPPORT_TICKETS",
   },
   {
     icon: <LuSettings className="w-6 h-6" />,
     name: "Settings",
-    path: "/admin-profile-settings",
+    path: "/admin/admin-profile",
     permissionModule: "BADGE_CREATION",
   },
 ];

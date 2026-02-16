@@ -6,6 +6,7 @@ import { useSidebar } from "@/context/SidebarContext";
 import { useRole } from "@/context/RoleContext";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import React, { useState ,useEffect,useRef} from "react";
 import { IoIosArrowForward } from "react-icons/io";
 
@@ -14,6 +15,7 @@ const AppHeader: React.FC = () => {
 
   const { isMobileOpen, isExpanded, toggleSidebar, toggleMobileSidebar } = useSidebar();
   const { role, toggleRole } = useRole();
+  const router = useRouter();
 
   const handleToggle = () => {
     if (window.innerWidth >= 1024) {
@@ -175,7 +177,11 @@ const AppHeader: React.FC = () => {
           <div className="flex items-center gap-2 2xsm:gap-3">
             {/* <!-- Role Toggle --> */}
             <button
-              onClick={toggleRole}
+              onClick={() => {
+                toggleRole();
+                const nextRole = role === "user" ? "admin" : "user";
+                router.push(nextRole === "admin" ? "/admin/dashboard" : "/dashboard");
+              }}
               className="flex items-center gap-1.5 rounded-full border border-gray-200 dark:border-gray-700 px-3 py-1.5 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
               aria-label="Toggle Role"
             >

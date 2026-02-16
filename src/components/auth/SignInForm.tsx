@@ -27,7 +27,7 @@ export default function SignInForm() {
 
     try {
       await login({ email, password });
-      router.push("/");
+      router.push("/admin/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed. Please try again.");
     } finally {
