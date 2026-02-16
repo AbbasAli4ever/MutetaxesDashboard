@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useRef, useState,useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
@@ -29,15 +29,19 @@ import {
   LuDollarSign,
   LuChartBar,
   LuTicket,
+  LuSettings,
 } from "react-icons/lu";
 import SidebarWidget from "./SidebarWidget";
 import { useRole } from "@/context/RoleContext";
+import { usePermissions } from "@/hooks/usePermissions";
+import { PermissionModule } from "@/types/permissions";
 
 type NavItem = {
   name: string;
   icon: React.ReactNode;
   path?: string;
   subItems?: { name: string; path: string; pro?: boolean; new?: boolean }[];
+  permissionModule?: PermissionModule; // Required for admin nav items permission checking
 };
 
 const userNavItems: NavItem[] = [
@@ -83,61 +87,56 @@ const adminNavItems: NavItem[] = [
     icon: <GridIcon />,
     name: "Dashboard",
     path: "/",
+    // No permissionModule - Dashboard is always visible for admins
   },
   {
     icon: <LuClipboardList className="w-6 h-6" />,
     name: "Registrations",
     path: "/registrations",
+    permissionModule: "REGISTRATIONS",
   },
   {
     icon: <LuUsers className="w-6 h-6" />,
     name: "User Management",
     path: "/user-management",
+    permissionModule: "USER_MANAGEMENT",
   },
   {
     icon: <LuDollarSign className="w-6 h-6" />,
     name: "Payments",
     path: "/payments",
+    permissionModule: "PAYMENTS",
   },
   {
     icon: <LuShield className="w-6 h-6" />,
     name: "Compliance",
     path: "/accounting-reports",
+    permissionModule: "COMPLIANCE",
   },
   {
     icon: <LuChartBar className="w-6 h-6" />,
     name: "Reports",
     path: "/taxation",
+    permissionModule: "REPORTS",
   },
   {
     icon: <LuMessagesSquare className="w-6 h-6" />,
     name: "Messages",
     path: "/messages",
+    permissionModule: "MESSAGES",
   },
   {
     icon: <LuTicket className="w-6 h-6" />,
     name: "Support Tickets",
     path: "/support-tickets",
+    permissionModule: "SUPPORT_TICKETS",
   },
-
-  // {
-  //   name: "Forms",
-  //   icon: <ListIcon />,
-  //   subItems: [{ name: "Form Elements", path: "/form-elements", pro: false }],
-  // },
-  // {
-  //   name: "Tables",
-  //   icon: <TableIcon />,
-  //   subItems: [{ name: "Basic Tables", path: "/basic-tables", pro: false }],
-  // },
-  // {
-  //   name: "Pages",
-  //   icon: <PageIcon />,
-  //   subItems: [
-  //     { name: "Blank Page", path: "/blank", pro: false },
-  //     { name: "404 Error", path: "/error-404", pro: false },
-  //   ],
-  // },
+  {
+    icon: <LuSettings className="w-6 h-6" />,
+    name: "Settings",
+    path: "/admin-profile-settings",
+    permissionModule: "BADGE_CREATION",
+  },
 ];
 
 // const othersItems: NavItem[] = [
@@ -175,7 +174,16 @@ const AppSidebar: React.FC = () => {
   const { isExpanded, isMobileOpen, isHovered, setIsHovered } = useSidebar();
   const { role } = useRole();
   const pathname = usePathname();
-  const navItems = role === "admin" ? adminNavItems : userNavItems;
+  const { filterByPermission } = usePermissions();
+
+  // For admin users, filter nav items based on their permissions
+  // For regular users, show all user nav items
+  const navItems = useMemo(() => {
+    if (role === "admin") {
+      return filterByPermission(adminNavItems);
+    }
+    return userNavItems;
+  }, [role, filterByPermission]);
 
   const renderMenuItems = (
     navItems: NavItem[],

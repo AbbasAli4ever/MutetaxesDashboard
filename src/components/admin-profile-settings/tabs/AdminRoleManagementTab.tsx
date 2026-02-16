@@ -1,89 +1,219 @@
 "use client";
 import React, { useState } from "react";
 import { LuPencil, LuPlus, LuShield, LuX } from "react-icons/lu";
+import { useEffect } from "react";
+import { authFetch } from "@/lib/auth";
 
 interface Role {
-  id: string;
+  id: string|null;
   name: string;
   displayName: string;
   users: number;
-  permissions: number;
-  created: string;
+  permissions: number | {id: string; code: string}[];
+  createdAt: string;
   color: string;
 }
 
 interface Permission {
   id: string;
-  label: string;
+  displayName:string;
+  code: string;
   description: string;
 }
 
-const ALL_PERMISSIONS: Permission[] = [
-  { id: "view_dashboard", label: "View Dashboard", description: "Access to main dashboard and analytics" },
-  { id: "view_registrations", label: "View Registrations", description: "View registration records" },
-  { id: "edit_registrations", label: "Edit Registrations", description: "Create and modify registrations" },
-  { id: "delete_registrations", label: "Delete Registrations", description: "Remove registration records" },
-  { id: "view_users", label: "View Users", description: "View user accounts" },
-  { id: "manage_users", label: "Manage Users", description: "Create, edit, and delete users" },
-  { id: "view_payments", label: "View Payments", description: "View payment records" },
-  { id: "process_payments", label: "Process Payments", description: "Handle payment transactions" },
-  { id: "view_compliance", label: "View Compliance", description: "Access compliance monitoring" },
-  { id: "manage_compliance", label: "Manage Compliance", description: "Update compliance settings" },
-  { id: "view_reports", label: "View Reports", description: "Access analytics and reports" },
-  { id: "export_reports", label: "Export Reports", description: "Download and export report data" },
-  { id: "view_messages", label: "View Messages", description: "Read communication messages" },
-  { id: "send_messages", label: "Send Messages", description: "Send and reply to messages" },
-  { id: "manage_settings", label: "Manage Settings", description: "Modify system settings" },
-  { id: "manage_roles", label: "Manage Roles", description: "Create and edit roles" },
-  { id: "view_audit_log", label: "View Audit Log", description: "Access system audit logs" },
-  { id: "manage_support", label: "Manage Support", description: "Handle support tickets" },
-];
 
 const BADGE_COLORS = [
-  { label: "Red",    value: "bg-red-500" },
-  { label: "Blue",   value: "bg-blue-500" },
-  { label: "Green",  value: "bg-green-500" },
-  { label: "Yellow", value: "bg-yellow-400" },
-  { label: "Purple", value: "bg-purple-500" },
-  { label: "Pink",   value: "bg-pink-500" },
-  { label: "Indigo", value: "bg-indigo-500" },
-  { label: "Orange", value: "bg-orange-500" },
+{ label: "Red",    value: "#EF4444" },
+{ label: "Blue",   value: "#3B82F6" },
+{ label: "Green",  value: "#22C55E" },
+{ label: "Yellow", value: "#FACC15" },
+{ label: "Purple", value: "#A855F7" },
+{ label: "Pink",   value: "#EC4899" },
+{ label: "Indigo", value: "#6366F1" },
+{ label: "Orange", value: "#F97316" },
+
 ];
 
 const initialRoles: Role[] = [
-  { id: "admin", name: "admin", displayName: "Administrator", users: 2, permissions: 18, created: "01/01/2024", color: "bg-red-500" },
-  { id: "registration_coordinator", name: "registration_coordinator", displayName: "Registration Coordinator", users: 5, permissions: 5, created: "01/01/2024", color: "bg-blue-500" },
-  { id: "registration_support", name: "registration_support", displayName: "Registration Support", users: 8, permissions: 5, created: "01/01/2024", color: "bg-green-500" },
+  { id: "admin", name: "admin", displayName: "Administrator", users: 2, permissions: 18, createdAt: "01/01/2024", color: "#EF4444" },
+  { id: "registration_coordinator", name: "registration_coordinator", displayName: "Registration Coordinator", users: 5, permissions: 5, createdAt: "01/01/2024", color: "#3B82F6" },
+  { id: "registration_support", name: "registration_support", displayName: "Registration Support", users: 8, permissions: 5, createdAt: "01/01/2024", color: "#22C55E" },
 ];
 
 /* ─── Create Role Modal ─────────────────────────────────────────────────── */
-const CreateRoleModal: React.FC<{ onClose: () => void; onAdd: (role: Role) => void }> = ({ onClose, onAdd }) => {
+const CreateRoleModal: React.FC<{ onClose: () => void; onCreated: () => void }> = ({ onClose, onCreated }) => {
+
+const [allPermissions, setAllPermissions] = useState<Permission[]>([]);
+
+useEffect(() => {
+  const fetchPermissions = async () => {
+    try {
+      const res = await authFetch('http://localhost:3000/permissions');
+      const data = await res.json();
+      setAllPermissions(data.permissions || []);
+    } catch (err) {
+      console.error("Failed to fetch permissions:", err);
+    }
+  };
+  fetchPermissions();
+}, []);
+
+
+
   const [roleName, setRoleName] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [selectedColor, setSelectedColor] = useState("bg-blue-500");
+  const [selectedColor, setSelectedColor] = useState("#3B82F6");
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
 
-  const togglePermission = (id: string) => {
-    setSelectedPermissions((prev) =>
-      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
-    );
+  // Helper to parse permission code into type and action
+  const parsePermissionCode = (code: string) => {
+    const upperCode = code?.toUpperCase() || '';
+    const actions = ['CREATE', 'READ', 'UPDATE', 'DELETE'];
+    for (const action of actions) {
+      if (upperCode.endsWith(`_${action}`)) {
+        return { type: upperCode.replace(`_${action}`, ''), action };
+      }
+    }
+    return { type: '', action: '' };
   };
 
-  const handleCreate = () => {
-    if (!roleName.trim()) return;
-    const today = new Date();
-    const created = `${String(today.getMonth() + 1).padStart(2, "0")}/${String(today.getDate()).padStart(2, "0")}/${today.getFullYear()}`;
-    onAdd({
-      id: roleName.trim(),
-      name: roleName.trim(),
-      displayName: displayName.trim() || roleName.trim(),
-      users: 0,
-      permissions: selectedPermissions.length,
-      created,
-      color: selectedColor,
-    });
-    onClose();
+  // Helper to find permission ID by type and action
+  const findPermissionId = (type: string, action: string) => {
+    const targetCode = `${type}_${action}`;
+    const perm = allPermissions.find((p) => p.code?.toUpperCase() === targetCode);
+    return perm?.id;
   };
+
+  // Check if a permission is selected by type and action
+  const isPermissionSelected = (type: string, action: string) => {
+    const permId = findPermissionId(type, action);
+    return permId ? selectedPermissions.includes(permId) : false;
+  };
+
+  // Check if a permission should be disabled based on dependencies
+  const isPermissionDisabled = (perm: Permission) => {
+    const { type, action } = parsePermissionCode(perm.code);
+    if (!type || !action) return false;
+
+    // READ is disabled if CREATE, UPDATE, or DELETE of same type is selected
+    if (action === 'READ') {
+      return isPermissionSelected(type, 'CREATE') ||
+             isPermissionSelected(type, 'UPDATE') ||
+             isPermissionSelected(type, 'DELETE');
+    }
+    // UPDATE is disabled if CREATE of same type is selected
+    if (action === 'UPDATE') {
+      return isPermissionSelected(type, 'CREATE');
+    }
+    // DELETE is disabled if CREATE of same type is selected
+    if (action === 'DELETE') {
+      return isPermissionSelected(type, 'CREATE');
+    }
+    return false;
+  };
+
+  const togglePermission = (id: string) => {
+    setSelectedPermissions((prev) => {
+      const isRemoving = prev.includes(id);
+      
+      // Find the permission being toggled
+      const permission = allPermissions.find((p) => p.id === id);
+      if (!permission) return isRemoving ? prev.filter((p) => p !== id) : [...prev, id];
+
+      const { type: permType, action: permAction } = parsePermissionCode(permission.code);
+      
+      // If we couldn't parse the code, just toggle the single permission
+      if (!permType || !permAction) {
+        return isRemoving ? prev.filter((p) => p !== id) : [...prev, id];
+      }
+
+      if (isRemoving) {
+        // When unchecking CREATE, also uncheck UPDATE, DELETE, and READ (if no other dependency)
+        if (permAction === 'CREATE') {
+          const readId = findPermissionId(permType, 'READ');
+          const updateId = findPermissionId(permType, 'UPDATE');
+          const deleteId = findPermissionId(permType, 'DELETE');
+          return prev.filter((p) => p !== id && p !== readId && p !== updateId && p !== deleteId);
+        }
+        // When unchecking UPDATE, also uncheck READ if DELETE is not selected
+        if (permAction === 'UPDATE') {
+          const readId = findPermissionId(permType, 'READ');
+          const deleteSelected = isPermissionSelected(permType, 'DELETE');
+          if (!deleteSelected && readId) {
+            return prev.filter((p) => p !== id && p !== readId);
+          }
+          return prev.filter((p) => p !== id);
+        }
+        // When unchecking DELETE, also uncheck READ if UPDATE is not selected
+        if (permAction === 'DELETE') {
+          const readId = findPermissionId(permType, 'READ');
+          const updateSelected = isPermissionSelected(permType, 'UPDATE');
+          if (!updateSelected && readId) {
+            return prev.filter((p) => p !== id && p !== readId);
+          }
+          return prev.filter((p) => p !== id);
+        }
+        return prev.filter((p) => p !== id);
+      }
+
+      // Adding permission
+      const newSelections = [id];
+
+      // If CREATE is selected, also select READ, UPDATE, DELETE
+      if (permAction === 'CREATE') {
+        const readId = findPermissionId(permType, 'READ');
+        const updateId = findPermissionId(permType, 'UPDATE');
+        const deleteId = findPermissionId(permType, 'DELETE');
+        if (readId && !prev.includes(readId)) newSelections.push(readId);
+        if (updateId && !prev.includes(updateId)) newSelections.push(updateId);
+        if (deleteId && !prev.includes(deleteId)) newSelections.push(deleteId);
+      }
+      // If UPDATE is selected, also select READ
+      else if (permAction === 'UPDATE') {
+        const readId = findPermissionId(permType, 'READ');
+        if (readId && !prev.includes(readId)) newSelections.push(readId);
+      }
+      // If DELETE is selected, also select READ
+      else if (permAction === 'DELETE') {
+        const readId = findPermissionId(permType, 'READ');
+        if (readId && !prev.includes(readId)) newSelections.push(readId);
+      }
+
+      return [...prev, ...newSelections];
+    });
+  };
+
+  const handleCreate = async () => {
+
+  if (!roleName.trim()) return;
+
+ 
+
+  const body = {
+    name: roleName.trim(),
+    displayName: displayName.trim() || roleName.trim(),
+    color: selectedColor,
+    permissionIds: selectedPermissions.map(id => Number(id))
+  };
+
+  try {
+      console.log('BODYb',body);
+    const res = await authFetch("http://localhost:3000/badges", {
+      method: "POST",
+      body: JSON.stringify(body)
+    });
+
+    await res.json();
+
+    // Re-fetch badges to get accurate data from the backend
+    onCreated();
+    onClose();
+
+  } catch (err) {
+    console.error("Create role failed:", err);
+  }
+};
+
 
   return (
     <div className="fixed inset-0 z-9999 flex items-center justify-center bg-black/50 p-4">
@@ -155,7 +285,8 @@ const CreateRoleModal: React.FC<{ onClose: () => void; onAdd: (role: Role) => vo
                   type="button"
                   onClick={() => setSelectedColor(c.value)}
                   title={c.label}
-                  className={`h-8 w-8 rounded-full ${c.value} transition-all ${
+                  style={{ backgroundColor: c.value }}
+                  className={`h-8 w-8 rounded-full transition-all ${
                     selectedColor === c.value
                       ? "ring-2 ring-offset-1 ring-[#4560ff] dark:ring-offset-[#4560ff] scale-110"
                       : "hover:scale-105"
@@ -171,27 +302,37 @@ const CreateRoleModal: React.FC<{ onClose: () => void; onAdd: (role: Role) => vo
               Permissions
             </label>
             <div className="mt-3 max-h-64 overflow-y-auto rounded-xl border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-800">
-              {ALL_PERMISSIONS.map((perm) => (
-                <label
-                  key={perm.id}
-                  className="flex cursor-pointer items-start gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedPermissions.includes(perm.id)}
-                    onChange={() => togglePermission(perm.id)}
-                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-500 accent-brand-500 cursor-pointer"
-                  />
-                  <div>
-                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
-                      {perm.label}
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {perm.description}
-                    </p>
-                  </div>
-                </label>
-              ))}
+              {allPermissions.map((perm) => {
+                const disabled = isPermissionDisabled(perm);
+                return (
+                  <label
+                    key={perm.id}
+                    className={`flex items-start gap-3 px-4 py-3 transition-colors ${
+                      disabled
+                        ? 'bg-gray-50 dark:bg-gray-800/30 cursor-not-allowed'
+                        : 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedPermissions.includes(perm.id)}
+                      onChange={() => !disabled && togglePermission(perm.id)}
+                      disabled={disabled}
+                      className={`mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-500 accent-brand-500 ${
+                        disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+                      }`}
+                    />
+                    <div className={disabled ? 'opacity-60' : ''}>
+                      <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                        {perm.displayName}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {perm.description}
+                      </p>
+                    </div>
+                  </label>
+                );
+              })}
             </div>
             <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
               {selectedPermissions.length} permission{selectedPermissions.length !== 1 ? "s" : ""} selected
@@ -224,25 +365,189 @@ const CreateRoleModal: React.FC<{ onClose: () => void; onAdd: (role: Role) => vo
 const EditRoleModal: React.FC<{ role: Role; onClose: () => void; onSave: (updated: Role) => void }> = ({ role, onClose, onSave }) => {
   const [displayName, setDisplayName] = useState(role.displayName);
   const [selectedColor, setSelectedColor] = useState(role.color);
-  const [selectedPermissions, setSelectedPermissions] = useState<string[]>(() =>
-    // seed with a dummy spread of the role's permission count so checkboxes reflect it
-    ALL_PERMISSIONS.slice(0, role.permissions).map((p) => p.id)
-  );
+  const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
+  const [allPermissions, setAllPermissions] = useState<Permission[]>([]);
 
-  const togglePermission = (id: string) => {
-    setSelectedPermissions((prev) =>
-      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
-    );
+  useEffect(() => {
+    const fetchPermissionsData = async () => {
+      try {
+        // Fetch all available permissions
+        const allPermsRes = await authFetch('http://localhost:3000/permissions');
+        const allPermsData = await allPermsRes.json();
+        const permissions = allPermsData.permissions || [];
+        setAllPermissions(permissions);
+
+        // Fetch badge's specific permissions
+        if (role.id) {
+          const badgePermsRes = await authFetch(`http://localhost:3000/badges/${role.id}/permissions`);
+          const badgePermsData = await badgePermsRes.json();
+          
+          if (badgePermsData.success && badgePermsData.permissions) {
+            // Get permission IDs for permissions that are true
+            const selectedIds: string[] = [];
+            const permissionsMap = badgePermsData.permissions as Record<string, boolean>;
+            
+            for (const [code, isSelected] of Object.entries(permissionsMap)) {
+              if (isSelected) {
+                const perm = permissions.find((p: Permission) => p.code?.toUpperCase() === code.toUpperCase());
+                if (perm) {
+                  selectedIds.push(perm.id);
+                }
+              }
+            }
+            setSelectedPermissions(selectedIds);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch permissions:", err);
+      }
+    };
+    fetchPermissionsData();
+  }, [role.id]);
+
+  // Helper to parse permission code into type and action
+  const parsePermissionCode = (code: string) => {
+    const upperCode = code?.toUpperCase() || '';
+    const actions = ['CREATE', 'READ', 'UPDATE', 'DELETE'];
+    for (const action of actions) {
+      if (upperCode.endsWith(`_${action}`)) {
+        return { type: upperCode.replace(`_${action}`, ''), action };
+      }
+    }
+    return { type: '', action: '' };
   };
 
-  const handleSave = () => {
-    onSave({
-      ...role,
-      displayName: displayName.trim() || role.displayName,
-      color: selectedColor,
-      permissions: selectedPermissions.length,
+  // Helper to find permission ID by type and action
+  const findPermissionId = (type: string, action: string) => {
+    const targetCode = `${type}_${action}`;
+    const perm = allPermissions.find((p) => p.code?.toUpperCase() === targetCode);
+    return perm?.id;
+  };
+
+  // Check if a permission is selected by type and action
+  const isPermissionSelected = (type: string, action: string) => {
+    const permId = findPermissionId(type, action);
+    return permId ? selectedPermissions.includes(permId) : false;
+  };
+
+  // Check if a permission should be disabled based on dependencies
+  const isPermissionDisabled = (perm: Permission) => {
+    const { type, action } = parsePermissionCode(perm.code);
+    if (!type || !action) return false;
+
+    // READ is disabled if CREATE, UPDATE, or DELETE of same type is selected
+    if (action === 'READ') {
+      return isPermissionSelected(type, 'CREATE') ||
+             isPermissionSelected(type, 'UPDATE') ||
+             isPermissionSelected(type, 'DELETE');
+    }
+    // UPDATE is disabled if CREATE of same type is selected
+    if (action === 'UPDATE') {
+      return isPermissionSelected(type, 'CREATE');
+    }
+    // DELETE is disabled if CREATE of same type is selected
+    if (action === 'DELETE') {
+      return isPermissionSelected(type, 'CREATE');
+    }
+    return false;
+  };
+
+  const togglePermission = (id: string) => {
+    setSelectedPermissions((prev) => {
+      const isRemoving = prev.includes(id);
+      
+      // Find the permission being toggled
+      const permission = allPermissions.find((p) => p.id === id);
+      if (!permission) return isRemoving ? prev.filter((p) => p !== id) : [...prev, id];
+
+      const { type: permType, action: permAction } = parsePermissionCode(permission.code);
+      
+      // If we couldn't parse the code, just toggle the single permission
+      if (!permType || !permAction) {
+        return isRemoving ? prev.filter((p) => p !== id) : [...prev, id];
+      }
+
+      if (isRemoving) {
+        // When unchecking CREATE, also uncheck UPDATE, DELETE, and READ (if no other dependency)
+        if (permAction === 'CREATE') {
+          const readId = findPermissionId(permType, 'READ');
+          const updateId = findPermissionId(permType, 'UPDATE');
+          const deleteId = findPermissionId(permType, 'DELETE');
+          return prev.filter((p) => p !== id && p !== readId && p !== updateId && p !== deleteId);
+        }
+        // When unchecking UPDATE, also uncheck READ if DELETE is not selected
+        if (permAction === 'UPDATE') {
+          const readId = findPermissionId(permType, 'READ');
+          const deleteSelected = isPermissionSelected(permType, 'DELETE');
+          if (!deleteSelected && readId) {
+            return prev.filter((p) => p !== id && p !== readId);
+          }
+          return prev.filter((p) => p !== id);
+        }
+        // When unchecking DELETE, also uncheck READ if UPDATE is not selected
+        if (permAction === 'DELETE') {
+          const readId = findPermissionId(permType, 'READ');
+          const updateSelected = isPermissionSelected(permType, 'UPDATE');
+          if (!updateSelected && readId) {
+            return prev.filter((p) => p !== id && p !== readId);
+          }
+          return prev.filter((p) => p !== id);
+        }
+        return prev.filter((p) => p !== id);
+      }
+
+      // Adding permission
+      const newSelections = [id];
+
+      // If CREATE is selected, also select READ, UPDATE, DELETE
+      if (permAction === 'CREATE') {
+        const readId = findPermissionId(permType, 'READ');
+        const updateId = findPermissionId(permType, 'UPDATE');
+        const deleteId = findPermissionId(permType, 'DELETE');
+        if (readId && !prev.includes(readId)) newSelections.push(readId);
+        if (updateId && !prev.includes(updateId)) newSelections.push(updateId);
+        if (deleteId && !prev.includes(deleteId)) newSelections.push(deleteId);
+      }
+      // If UPDATE is selected, also select READ
+      else if (permAction === 'UPDATE') {
+        const readId = findPermissionId(permType, 'READ');
+        if (readId && !prev.includes(readId)) newSelections.push(readId);
+      }
+      // If DELETE is selected, also select READ
+      else if (permAction === 'DELETE') {
+        const readId = findPermissionId(permType, 'READ');
+        if (readId && !prev.includes(readId)) newSelections.push(readId);
+      }
+
+      return [...prev, ...newSelections];
     });
-    onClose();
+  };
+
+  const handleSave = async () => {
+    try {
+      const body = {
+        displayName: displayName.trim() || role.displayName,
+        color: selectedColor,
+        permissionIds: selectedPermissions.map(id => Number(id))
+      };
+
+      const res = await authFetch(`http://localhost:3000/badges/${role.id}`, {
+        method: "PATCH",
+        body: JSON.stringify(body)
+      });
+
+      await res.json();
+
+      onSave({
+        ...role,
+        displayName: displayName.trim() || role.displayName,
+        color: selectedColor,
+        permissions: selectedPermissions.length,
+      });
+      onClose();
+    } catch (err) {
+      console.error("Update role failed:", err);
+    }
   };
 
   return (
@@ -312,7 +617,8 @@ const EditRoleModal: React.FC<{ role: Role; onClose: () => void; onSave: (update
                   type="button"
                   onClick={() => setSelectedColor(c.value)}
                   title={c.label}
-                  className={`h-8 w-8 rounded-full ${c.value} transition-all ${
+                  style={{ backgroundColor: c.value }}
+                  className={`h-8 w-8 rounded-full transition-all ${
                     selectedColor === c.value
                       ? "ring-2 ring-offset-1 ring-[#4560ff] dark:ring-offset-[#4560ff] scale-110"
                       : "hover:scale-105"
@@ -328,27 +634,37 @@ const EditRoleModal: React.FC<{ role: Role; onClose: () => void; onSave: (update
               Permissions
             </label>
             <div className="mt-3 max-h-64 overflow-y-auto rounded-xl border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-800">
-              {ALL_PERMISSIONS.map((perm) => (
-                <label
-                  key={perm.id}
-                  className="flex cursor-pointer items-start gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedPermissions.includes(perm.id)}
-                    onChange={() => togglePermission(perm.id)}
-                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-500 accent-brand-500 cursor-pointer"
-                  />
-                  <div>
-                    <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
-                      {perm.label}
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {perm.description}
-                    </p>
-                  </div>
-                </label>
-              ))}
+              {allPermissions.map((perm) => {
+                const disabled = isPermissionDisabled(perm);
+                return (
+                  <label
+                    key={perm.id}
+                    className={`flex items-start gap-3 px-4 py-3 transition-colors ${
+                      disabled
+                        ? 'bg-gray-50 dark:bg-gray-800/30 cursor-not-allowed'
+                        : 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedPermissions.includes(perm.id)}
+                      onChange={() => !disabled && togglePermission(perm.id)}
+                      disabled={disabled}
+                      className={`mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-500 accent-brand-500 ${
+                        disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+                      }`}
+                    />
+                    <div className={disabled ? 'opacity-60' : ''}>
+                      <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                        {perm.code}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {perm.description}
+                      </p>
+                    </div>
+                  </label>
+                );
+              })}
             </div>
             <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
               {selectedPermissions.length} permission{selectedPermissions.length !== 1 ? "s" : ""} selected
@@ -378,9 +694,26 @@ const EditRoleModal: React.FC<{ role: Role; onClose: () => void; onSave: (update
 
 /* ─── Main Tab ──────────────────────────────────────────────────────────── */
 const AdminRoleManagementTab: React.FC = () => {
-  const [roles, setRoles] = useState<Role[]>(initialRoles);
+  const [roles, setRoles] = useState<Role[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingRole, setEditingRole] = useState<Role | null>(null);
+
+const fetchBadges = async () => {
+    const res = await authFetch('http://localhost:3000/badges', {
+      method: "GET"
+    });
+    const data = await res.json();
+    setRoles(data.badges || []);
+  };
+
+  useEffect(() => {
+    fetchBadges();
+  }, []);
+
+
+useEffect(()=>{
+  console.log(roles);
+},[roles])
 
   return (
     <div className="space-y-6">
@@ -416,21 +749,21 @@ const AdminRoleManagementTab: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-              {roles.map((role) => (
+              {roles?.map((role) => (
                 <tr key={role.id}>
                   <td className="py-4">
-                    <span className={`inline-flex items-center rounded-full ${role.color} px-2.5 py-1 text-xs font-medium text-white`}>
+                    <span style={{ backgroundColor: role.color }} className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium text-white">
                       {role.name}
                     </span>
                   </td>
-                  <td className="py-4 text-sm text-gray-700 dark:text-gray-300" title={role.displayName}>
-                    {role.displayName.length > 24 ? role.displayName.slice(0, 24) + "…" : role.displayName}
+                  <td className="py-4 text-sm text-gray-700 dark:text-gray-300" title={role.displayName ?? ""}>
+                    {(role.displayName ?? "").length > 24 ? (role.displayName ?? "").slice(0, 24) + "…" : (role.displayName ?? "")}
                   </td>
-                  <td className="py-4 text-sm text-gray-700 dark:text-gray-300">{role.users} users</td>
+                  <td className="py-4 text-sm text-gray-700 dark:text-gray-300">{role.users ?? 0} users</td>
                   <td className="py-4">
-                    <span className="text-sm text-brand-500">{role.permissions} permissions</span>
+                    <span className="text-sm text-brand-500">{Array.isArray(role.permissions) ? role.permissions.length : role.permissions} permissions</span>
                   </td>
-                  <td className="py-4 text-sm text-gray-700 dark:text-gray-300">{role.created}</td>
+                  <td className="py-4 text-sm text-gray-700 dark:text-gray-300">{role.createdAt ? new Date(role.createdAt).toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : ""}</td>
                   <td className="py-4 text-right">
                     <button
                       onClick={() => setEditingRole(role)}
@@ -449,7 +782,7 @@ const AdminRoleManagementTab: React.FC = () => {
       {showCreateModal && (
         <CreateRoleModal
           onClose={() => setShowCreateModal(false)}
-          onAdd={(role) => setRoles((prev) => [...prev, role])}
+          onCreated={() => fetchBadges()}
         />
       )}
 
