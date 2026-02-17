@@ -135,7 +135,7 @@ const adminNavItems: NavItem[] = [
     icon: <LuSettings className="w-6 h-6" />,
     name: "Settings",
     path: "/admin/admin-profile",
-    permissionModule: "BADGE_CREATION",
+    // No permissionModule — profile/settings is always visible
   },
 ];
 
