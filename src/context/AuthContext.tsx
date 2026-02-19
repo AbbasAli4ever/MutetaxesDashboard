@@ -146,6 +146,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const logout = useCallback(() => {
     clearAuthData();
+    // Clear role so the next login starts fresh
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("dashboardRole");
+    }
     setState({
       user: null,
       accessToken: null,

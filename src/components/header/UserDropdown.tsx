@@ -1,6 +1,6 @@
 "use client";
-import Link from "next/link";
 import React, { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { Dropdown } from "../ui/dropdown/Dropdown";
 import { DropdownItem } from "../ui/dropdown/DropdownItem";
 import { useRole } from "@/context/RoleContext";
@@ -9,8 +9,14 @@ import { useAuth } from "@/context/AuthContext";
 export default function UserDropdown() {
   const [isOpen, setIsOpen] = useState(false);
   const { role } = useRole();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const router = useRouter();
   const profileHref = role === "admin" ? "/admin/admin-profile" : "/profile";
+
+  function handleSignOut() {
+    logout();
+    router.replace("/signin");
+  }
 
   const userName = user?.name || "User";
   const userEmail = user?.email || "";
@@ -154,9 +160,9 @@ function toggleDropdown(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
             </DropdownItem>
           </li>
         </ul>
-        <Link
-          href="/signin"
-          className="flex items-center gap-3 px-3 py-2 mt-3 font-medium text-red-500 rounded-lg group text-theme-sm hover:bg-gray-100 hover:text-red-700 dark:text-red-500 dark:hover:bg-white/5 dark:hover:text-red-700"
+        <button
+          onClick={handleSignOut}
+          className="flex w-full items-center gap-3 px-3 py-2 mt-3 font-medium text-red-500 rounded-lg group text-theme-sm hover:bg-gray-100 hover:text-red-700 dark:text-red-500 dark:hover:bg-white/5 dark:hover:text-red-700"
         >
           <svg
             className="fill-red-500 group-hover:fill-red-700 dark:group-hover:fill-red-700"
@@ -174,7 +180,7 @@ function toggleDropdown(e: React.MouseEvent<HTMLButtonElement, MouseEvent>) {
             />
           </svg>
           Sign out
-        </Link>
+        </button>
       </Dropdown>
     </div>
   );

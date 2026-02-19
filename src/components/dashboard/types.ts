@@ -1,11 +1,11 @@
-import { LucideIcon } from "react-icons/lu";
+import type { IconType } from "react-icons";
 
 export interface StatCardData {
   title: string;
   value: string;
   change: string;
   period: string;
-  icon: LucideIcon;
+  icon: IconType;
   iconBg: string;
   iconColor: string;
   alert?: boolean;

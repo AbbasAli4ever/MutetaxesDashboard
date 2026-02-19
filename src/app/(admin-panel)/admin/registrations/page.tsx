@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   LuFileText,
   LuEye,
@@ -178,6 +179,7 @@ const statusOptions = [
 ];
 
 export default function Registrations() {
+  const router = useRouter();
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("All Status");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -218,7 +220,7 @@ export default function Registrations() {
     return matchesSearch && matchesStatus;
   });
 
-  const handleViewDetails = (registration: Registration) => { setSelectedRegistration(registration); setIsModalOpen(true); };
+  const handleViewDetails = (registration: Registration) => { router.push(`/admin/registrations/${registration.id}`); };
   const handleCloseModal = () => { setIsModalOpen(false); setSelectedRegistration(null); };
   const handleEditClick = (registration: Registration) => { setEditFormData({ ...registration }); setIsEditModalOpen(true); };
   const handleCloseEditModal = () => { setIsEditModalOpen(false); setEditFormData(null); };
