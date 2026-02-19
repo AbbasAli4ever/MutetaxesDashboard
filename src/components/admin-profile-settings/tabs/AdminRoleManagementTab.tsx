@@ -2,7 +2,7 @@
 import React, { useState } from "react";
 import { LuPencil, LuPlus, LuShield, LuX } from "react-icons/lu";
 import { useEffect } from "react";
-import { authFetch } from "@/lib/auth";
+import { authFetch, API_BASE_URL } from "@/lib/auth";
 
 interface Role {
   id: string|null;
@@ -48,7 +48,7 @@ const [allPermissions, setAllPermissions] = useState<Permission[]>([]);
 useEffect(() => {
   const fetchPermissions = async () => {
     try {
-      const res = await authFetch('http://localhost:3000/permissions');
+      const res = await authFetch(`${API_BASE_URL}/permissions`);
       const data = await res.json();
       setAllPermissions(data.permissions || []);
     } catch (err) {
@@ -198,7 +198,7 @@ useEffect(() => {
 
   try {
       console.log('BODYb',body);
-    const res = await authFetch("http://localhost:3000/badges", {
+    const res = await authFetch(`${API_BASE_URL}/badges`, {
       method: "POST",
       body: JSON.stringify(body)
     });
@@ -372,14 +372,14 @@ const EditRoleModal: React.FC<{ role: Role; onClose: () => void; onSave: (update
     const fetchPermissionsData = async () => {
       try {
         // Fetch all available permissions
-        const allPermsRes = await authFetch('http://localhost:3000/permissions');
+        const allPermsRes = await authFetch(`${API_BASE_URL}/permissions`);
         const allPermsData = await allPermsRes.json();
         const permissions = allPermsData.permissions || [];
         setAllPermissions(permissions);
 
         // Fetch badge's specific permissions
         if (role.id) {
-          const badgePermsRes = await authFetch(`http://localhost:3000/badges/${role.id}/permissions`);
+          const badgePermsRes = await authFetch(`${API_BASE_URL}/badges/${role.id}/permissions`);
           const badgePermsData = await badgePermsRes.json();
           
           if (badgePermsData.success && badgePermsData.permissions) {
@@ -531,7 +531,7 @@ const EditRoleModal: React.FC<{ role: Role; onClose: () => void; onSave: (update
         permissionIds: selectedPermissions.map(id => Number(id))
       };
 
-      const res = await authFetch(`http://localhost:3000/badges/${role.id}`, {
+      const res = await authFetch(`${API_BASE_URL}/badges/${role.id}`, {
         method: "PATCH",
         body: JSON.stringify(body)
       });
@@ -699,7 +699,7 @@ const AdminRoleManagementTab: React.FC = () => {
   const [editingRole, setEditingRole] = useState<Role | null>(null);
 
 const fetchBadges = async () => {
-    const res = await authFetch('http://localhost:3000/badges', {
+    const res = await authFetch(`${API_BASE_URL}/badges`, {
       method: "GET"
     });
     const data = await res.json();

@@ -9,9 +9,7 @@ import {
   LuCircleCheck,
   LuCircleAlert,
 } from "react-icons/lu";
-import { authFetch } from "@/lib/auth";
-
-const API_BASE_URL = "http://localhost:3000";
+import { authFetch, API_BASE_URL } from "@/lib/auth";
 
 const AdminSecurityTab: React.FC = () => {
   const [currentPassword, setCurrentPassword] = useState("");

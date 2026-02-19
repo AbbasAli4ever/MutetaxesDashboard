@@ -17,9 +17,9 @@ import {
   useModulePermission,
 } from "@/context/PermissionContext";
 import PageAccessGuard from "@/components/common/PageAccessGuard";
-import { authFetch } from "@/lib/auth";
+import { authFetch, API_BASE_URL } from "@/lib/auth";
 
-const API_BASE = "http://localhost:3000";
+const API_BASE = API_BASE_URL;
 
 // ─── API shapes ──────────────────────────────────────────────────────────────
 
