@@ -373,15 +373,16 @@ function isValidEmail(v: string) {
 }
 
 function SectionCard({
-  icon: Icon, title, subtitle, editing, onEdit, onSave, onCancel, children, canEdit = true, extraHeader, saveDisabled = false,
+  icon: Icon, title, subtitle, editing, onEdit, onSave, onCancel, children, canEdit = true, extraHeader, saveDisabled = false, saving = false, saveError = "",
 }: {
   icon: React.ElementType; title: string; subtitle?: string;
   editing: boolean; onEdit: () => void; onSave: () => void; onCancel: () => void;
   children: React.ReactNode; canEdit?: boolean; extraHeader?: React.ReactNode; saveDisabled?: boolean;
+  saving?: boolean; saveError?: string;
 }) {
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-theme-sm overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 gap-3 flex-wrap">
+    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-theme-sm overflow-visible">
+      <div className="flex items-center rounded-t-xl justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 gap-3 flex-wrap">
         <div className="flex items-center gap-3">
           <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-brand-50 dark:bg-brand-500/10">
             <Icon className="w-[18px] h-[18px] text-brand-600 dark:text-brand-400" />
@@ -396,16 +397,24 @@ function SectionCard({
           {canEdit && (
             editing ? (
               <>
-                <button onClick={onCancel} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                {saveError && (
+                  <span className="text-xs text-error-600 dark:text-error-400 flex items-center gap-1">
+                    <LuCircleAlert className="w-3.5 h-3.5 shrink-0" />{saveError}
+                  </span>
+                )}
+                <button onClick={onCancel} disabled={saving} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50">
                   <LuX className="w-3.5 h-3.5" /> Cancel
                 </button>
                 <button
-                  onClick={saveDisabled ? undefined : onSave}
-                  disabled={saveDisabled}
+                  onClick={saveDisabled || saving ? undefined : onSave}
+                  disabled={saveDisabled || saving}
                   title={saveDisabled ? "Fix validation errors before saving" : undefined}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-brand-500 hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-colors"
                 >
-                  <LuCheck className="w-3.5 h-3.5" /> Save
+                  {saving
+                    ? <><LuRefreshCw className="w-3.5 h-3.5 animate-spin" /> Saving…</>
+                    : <><LuCheck className="w-3.5 h-3.5" /> Save</>
+                  }
                 </button>
               </>
             ) : (
@@ -596,18 +605,49 @@ function ShareCapitalAddDropdown({
 
 // ─── Add Person Dropdown ──────────────────────────────────────────────────────
 
+function blankNewPerson() {
+  return {
+    type: "individual" as "individual" | "corporate",
+    fullName: "", companyName: "", nationality: "", email: "", phone: "",
+    street: "", city: "", state: "", postalCode: "", country: "",
+    countryOfIncorporation: "", registrationNumber: "",
+    shares: "",
+  };
+}
+
 function AddPersonDropdown({
-  label, candidates, candidateRole, newRole, onAddExisting, onAddNew,
+  label, candidates, candidateRole, newRole, onAddExisting, onAddNewWithAdjustments,
+  totalShares, currentShareholders,
 }: {
   label: string; candidates: Person[]; candidateRole: string; newRole: string;
-  onAddExisting: (personId: string) => void; onAddNew: (person: Person) => void;
+  onAddExisting: (personId: string, adjustments: { id: string; shares: number }[], newShares: number) => void;
+  onAddNewWithAdjustments: (person: Person, adjustedShareholders: { id: string; shares: number }[]) => void;
+  totalShares?: number; currentShareholders?: Person[];
 }) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"existing" | "new">("existing");
   const [selectedId, setSelectedId] = useState("");
-  const [newName, setNewName] = useState("");
-  const [newEmail, setNewEmail] = useState("");
+  const [existingShares, setExistingShares] = useState(""); // shares for the selected existing person
+  const [form, setForm] = useState(blankNewPerson);
+  const [touched, setTouched] = useState(false);
+  // adjustedShares: map of personId → share count string (for existing shareholders)
+  const [adjustedShares, setAdjustedShares] = useState<Record<string, string>>({});
   const ref = useRef<HTMLDivElement>(null);
+
+  const isShareholder = newRole === "shareholder";
+  const ts = totalShares ?? 0;
+  const shareholders = currentShareholders ?? [];
+
+  // Build the initial adjustedShares map from current shareholders
+  const initAdjustedShares = () => {
+    if (!isShareholder) return;
+    const init: Record<string, string> = {};
+    shareholders.filter((p) => p.roles.includes("shareholder")).forEach((p) => {
+      init[p.id] = String(p.shareholding.shares);
+    });
+    setAdjustedShares(init);
+    setExistingShares("");
+  };
 
   useEffect(() => {
     const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
@@ -615,60 +655,429 @@ function AddPersonDropdown({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  const set = (k: keyof ReturnType<typeof blankNewPerson>) => (v: string) => setForm((p) => ({ ...p, [k]: v }));
+
+  // ── Existing tab share calculations ────────────────────────────────────────
+  const existingSharesNum = parseInt(existingShares, 10);
+  const existingAdjustedTotal = Object.values(adjustedShares).reduce((s, v) => s + (parseInt(v, 10) || 0), 0);
+  const existingAvailableForNew = Math.max(0, ts - existingAdjustedTotal);
+  const existingTotalAfterAdd = existingAdjustedTotal + (isNaN(existingSharesNum) ? 0 : existingSharesNum);
+  const existingSumMatchesTotal = isShareholder ? existingTotalAfterAdd === ts : true;
+
+  const existingShareErrors = {
+    selected: !selectedId ? "Select a person" : "",
+    shares: isShareholder
+      ? (!existingShares.trim() ? "Required"
+        : isNaN(existingSharesNum) || existingSharesNum <= 0 ? "Must be > 0"
+        : existingSharesNum > existingAvailableForNew ? `Max ${existingAvailableForNew.toLocaleString()}`
+        : "")
+      : "",
+    adjustments: isShareholder ? (() => {
+      for (const p of shareholders.filter((p) => p.roles.includes("shareholder"))) {
+        const v = parseInt(adjustedShares[p.id] ?? "", 10);
+        if (isNaN(v) || v < 1) return `${p.fullName || p.companyName}: min 1 share`;
+        if (v > p.shareholding.shares) return `${p.fullName || p.companyName}: cannot exceed ${p.shareholding.shares.toLocaleString()}`;
+      }
+      return "";
+    })() : "",
+  };
+  const existingValid = !existingShareErrors.selected && !existingShareErrors.shares && !existingShareErrors.adjustments && existingSumMatchesTotal;
+
+  // ── New tab share calculations ──────────────────────────────────────────────
+  const adjustedTotal = Object.values(adjustedShares).reduce((s, v) => s + (parseInt(v, 10) || 0), 0);
+  const sharesNum = parseInt(form.shares, 10);
+  const availableForNew = Math.max(0, ts - adjustedTotal);
+
+  const newErrors = {
+    name: form.type === "individual" ? (!form.fullName.trim() ? "Required" : "") : (!form.companyName.trim() ? "Required" : ""),
+    email: !form.email.trim() ? "Required" : !isValidEmail(form.email) ? "Invalid email" : "",
+    phone: !form.phone.trim() ? "Required" : "",
+    country: !form.country.trim() ? "Required" : "",
+    shares: isShareholder
+      ? (!form.shares.trim() ? "Required"
+        : isNaN(sharesNum) || sharesNum <= 0 ? "Must be > 0"
+        : sharesNum > availableForNew ? `Max ${availableForNew.toLocaleString()} (free up more from existing shareholders)`
+        : "")
+      : "",
+    adjustments: isShareholder ? (() => {
+      for (const p of shareholders.filter((p) => p.roles.includes("shareholder"))) {
+        const v = parseInt(adjustedShares[p.id] ?? "", 10);
+        if (isNaN(v) || v < 1) return `${p.fullName || p.companyName}: min 1 share`;
+        if (v > p.shareholding.shares) return `${p.fullName || p.companyName}: cannot exceed their current ${p.shareholding.shares.toLocaleString()} shares`;
+      }
+      return "";
+    })() : "",
+  };
+  const totalAfterAdd = adjustedTotal + (isNaN(sharesNum) ? 0 : sharesNum);
+  const sumMatchesTotal = isShareholder ? totalAfterAdd === ts : true;
+  const newValid = Object.values(newErrors).every((e) => !e) && sumMatchesTotal;
+
+  const reset = () => {
+    setForm(blankNewPerson()); setTouched(false); setSelectedId("");
+    setAdjustedShares({}); setExistingShares("");
+  };
+
   const handleAdd = () => {
     if (mode === "existing") {
-      if (!selectedId) return;
-      onAddExisting(selectedId);
+      setTouched(true);
+      if (isShareholder && !existingValid) return;
+      if (!isShareholder && !selectedId) return;
+      const adjustmentsList = isShareholder
+        ? shareholders
+            .filter((p) => p.roles.includes("shareholder"))
+            .map((p) => ({ id: p.id, shares: parseInt(adjustedShares[p.id] ?? "0", 10) }))
+        : [];
+      onAddExisting(selectedId, adjustmentsList, isShareholder ? existingSharesNum : 0);
+      reset();
+      setOpen(false);
     } else {
-      if (!newName.trim()) return;
+      setTouched(true);
+      if (!newValid) return;
       const p = blankPerson(newRole);
-      onAddNew({ ...p, fullName: newName.trim(), email: newEmail.trim() });
+      const person: Person = {
+        ...p,
+        type: form.type,
+        fullName: form.type === "individual" ? form.fullName.trim() : "",
+        companyName: form.type === "corporate" ? form.companyName.trim() : "",
+        countryOfIncorporation: form.countryOfIncorporation.trim() || null,
+        registrationNumber: form.registrationNumber.trim() || null,
+        nationality: form.nationality.trim(),
+        email: form.email.trim(),
+        phone: form.phone.trim(),
+        residentialAddress: {
+          street: form.street.trim(),
+          city: form.city.trim(),
+          state: form.state.trim(),
+          postalCode: form.postalCode.trim(),
+          country: form.country.trim(),
+        },
+        shareholding: { shares: isShareholder ? sharesNum : 0, percentage: 0 },
+      };
+      const adjustmentsList = isShareholder
+        ? shareholders
+            .filter((p) => p.roles.includes("shareholder"))
+            .map((p) => ({ id: p.id, shares: parseInt(adjustedShares[p.id] ?? "0", 10) }))
+        : [];
+      onAddNewWithAdjustments(person, adjustmentsList);
+      reset();
+      setOpen(false);
     }
-    setOpen(false); setSelectedId(""); setNewName(""); setNewEmail("");
   };
 
   return (
     <div ref={ref} className="relative">
-      <button onClick={() => setOpen((o) => !o)} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-brand-500 hover:bg-brand-600 rounded-lg transition-colors">
+      <button onClick={() => { setOpen((o) => { if (!o) initAdjustedShares(); return !o; }); }} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-brand-500 hover:bg-brand-600 rounded-lg transition-colors">
         <LuPlus className="w-3.5 h-3.5" /> {label} <LuChevronDown className={`w-3 h-3 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-2 z-50 w-80 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-theme-lg p-4 space-y-3">
-          <div className="flex rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 text-xs font-medium">
-            <button onClick={() => setMode("existing")} className={`flex-1 py-1.5 transition-colors ${mode === "existing" ? "bg-brand-500 text-white" : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"}`}>
+        <div className="absolute right-0 top-full mt-2 z-40 w-[420px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-theme-lg overflow-hidden">
+          {/* Tabs */}
+          <div className="flex border-b border-gray-200 dark:border-gray-700 text-xs font-medium">
+            <button onClick={() => { setMode("existing"); initAdjustedShares(); }} className={`flex-1 py-2.5 transition-colors ${mode === "existing" ? "bg-brand-500 text-white" : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"}`}>
               From {candidateRole === "director" ? "Directors" : "Shareholders"}
             </button>
-            <button onClick={() => setMode("new")} className={`flex-1 py-1.5 transition-colors ${mode === "new" ? "bg-brand-500 text-white" : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"}`}>
+            <button onClick={() => { setMode("new"); initAdjustedShares(); }} className={`flex-1 py-2.5 transition-colors ${mode === "new" ? "bg-brand-500 text-white" : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"}`}>
               Add New
             </button>
           </div>
-          {mode === "existing" ? (
-            candidates.length === 0 ? (
-              <p className="text-xs text-gray-500 dark:text-gray-400 italic text-center py-2">No {candidateRole === "director" ? "directors" : "shareholders"} available.</p>
+
+          <div className="p-4 space-y-3 max-h-[75vh] overflow-y-auto">
+            {mode === "existing" ? (
+              candidates.length === 0 ? (
+                <p className="text-xs text-gray-500 dark:text-gray-400 italic text-center py-3">
+                  No {candidateRole === "director" ? "directors" : "shareholders"} available.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {/* Person selector */}
+                  <div>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Select Person</label>
+                    <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)} className={touched && existingShareErrors.selected ? inputErrCls : inputCls}>
+                      <option value="">— choose —</option>
+                      {candidates.map((p) => <option key={p.id} value={p.id}>{p.fullName || p.companyName}</option>)}
+                    </select>
+                    {touched && existingShareErrors.selected && <p className="mt-1 text-xs text-error-500">{existingShareErrors.selected}</p>}
+                  </div>
+
+                  {/* Share allocation — only when adding as shareholder */}
+                  {isShareholder && (
+                    <div className="pt-2 border-t border-gray-200 dark:border-gray-700 space-y-3">
+                      <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Share Allocation</p>
+
+                      {/* Existing shareholders — adjustable */}
+                      {shareholders.filter((p) => p.roles.includes("shareholder")).length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-xs text-gray-500 dark:text-gray-400">Adjust existing shareholders to free up shares.</p>
+                          {shareholders.filter((p) => p.roles.includes("shareholder")).map((p) => {
+                            const current = parseInt(adjustedShares[p.id] ?? String(p.shareholding.shares), 10) || 0;
+                            const original = p.shareholding.shares;
+                            const freed = original - current;
+                            const pct = ts > 0 ? ((current / ts) * 100).toFixed(1) : "0.0";
+                            const hasErr = touched && (isNaN(current) || current < 1 || current > original);
+                            return (
+                              <div key={p.id} className="flex items-center gap-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+                                <div className="w-6 h-6 rounded-full bg-brand-100 dark:bg-brand-500/20 flex items-center justify-center text-[10px] font-bold text-brand-600 dark:text-brand-400 flex-shrink-0">
+                                  {(p.fullName || p.companyName || "?")[0].toUpperCase()}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-semibold text-gray-900 dark:text-white truncate">{p.fullName || p.companyName}</p>
+                                  <p className="text-[10px] text-gray-500 dark:text-gray-400">
+                                    Original: {original.toLocaleString()} · New: {pct}%
+                                    {freed > 0 && <span className="text-brand-500 font-medium"> · freed {freed.toLocaleString()}</span>}
+                                  </p>
+                                </div>
+                                <div className="flex-shrink-0 w-24">
+                                  <input
+                                    type="number"
+                                    value={adjustedShares[p.id] ?? String(original)}
+                                    onChange={(e) => setAdjustedShares((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                                    min={1} max={original}
+                                    className={(hasErr ? inputErrCls : inputCls) + " text-center text-xs py-1"}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {touched && existingShareErrors.adjustments && <p className="text-xs text-error-500">{existingShareErrors.adjustments}</p>}
+                        </div>
+                      )}
+
+                      {/* New person's shares */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                            Shares for Selected Person <span className="text-error-500">*</span>
+                          </label>
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-md ${existingAvailableForNew > 0 ? "bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400" : "bg-error-50 dark:bg-error-500/10 text-error-600 dark:text-error-400"}`}>
+                            {existingAvailableForNew.toLocaleString()} available
+                          </span>
+                        </div>
+                        <input
+                          type="number"
+                          value={existingShares}
+                          onChange={(e) => setExistingShares(e.target.value)}
+                          placeholder={existingAvailableForNew > 0 ? `1 – ${existingAvailableForNew.toLocaleString()}` : "Free up shares above first"}
+                          disabled={existingAvailableForNew <= 0}
+                          min={1} max={existingAvailableForNew}
+                          className={touched && existingShareErrors.shares ? inputErrCls : inputCls}
+                        />
+                        {touched && existingShareErrors.shares && <p className="mt-1 text-xs text-error-500">{existingShareErrors.shares}</p>}
+                        {!isNaN(existingSharesNum) && existingSharesNum > 0 && ts > 0 && (
+                          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">= {((existingSharesNum / ts) * 100).toFixed(2)}% ownership</p>
+                        )}
+                      </div>
+
+                      {/* Live total bar */}
+                      {ts > 0 && (
+                        <div className={`p-2.5 rounded-lg border text-xs ${existingTotalAfterAdd === ts ? "bg-success-50 dark:bg-success-500/10 border-success-200 dark:border-success-500/20" : "bg-warning-50 dark:bg-warning-500/10 border-warning-200 dark:border-warning-500/20"}`}>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className={`font-semibold ${existingTotalAfterAdd === ts ? "text-success-700 dark:text-success-400" : "text-warning-700 dark:text-warning-400"}`}>
+                              {existingTotalAfterAdd === ts ? "✓ Total = 100%" : `Total: ${existingTotalAfterAdd.toLocaleString()} / ${ts.toLocaleString()}`}
+                            </span>
+                            {existingTotalAfterAdd !== ts && (
+                              <span className="text-warning-600 dark:text-warning-400">
+                                {existingTotalAfterAdd < ts ? `${(ts - existingTotalAfterAdd).toLocaleString()} unallocated` : `over by ${(existingTotalAfterAdd - ts).toLocaleString()}`}
+                              </span>
+                            )}
+                          </div>
+                          <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full transition-all duration-300 ${existingTotalAfterAdd > ts ? "bg-error-500" : existingTotalAfterAdd === ts ? "bg-success-500" : "bg-warning-500"}`}
+                              style={{ width: `${Math.min((existingTotalAfterAdd / ts) * 100, 100)}%` }} />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
             ) : (
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Select</label>
-                <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)} className={inputCls}>
-                  <option value="">— choose —</option>
-                  {candidates.map((p) => <option key={p.id} value={p.id}>{p.fullName || p.companyName}</option>)}
-                </select>
+              <div className="space-y-3">
+                {/* Type toggle */}
+                <div>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">Person Type</label>
+                  <div className="flex rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 text-xs font-medium">
+                    <button onClick={() => set("type")("individual")} className={`flex-1 py-1.5 transition-colors ${form.type === "individual" ? "bg-brand-500 text-white" : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"}`}>Individual</button>
+                    <button onClick={() => set("type")("corporate")} className={`flex-1 py-1.5 transition-colors ${form.type === "corporate" ? "bg-brand-500 text-white" : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"}`}>Corporate</button>
+                  </div>
+                </div>
+
+                {/* Name row */}
+                {form.type === "individual" ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Full Name <span className="text-error-500">*</span></label>
+                      <input value={form.fullName} onChange={(e) => set("fullName")(e.target.value)} placeholder="e.g. John Smith" className={touched && newErrors.name ? inputErrCls : inputCls} />
+                      {touched && newErrors.name && <p className="mt-1 text-xs text-error-500">{newErrors.name}</p>}
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Nationality</label>
+                      <input value={form.nationality} onChange={(e) => set("nationality")(e.target.value)} placeholder="e.g. HK" className={inputCls} />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="col-span-2">
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Company Name <span className="text-error-500">*</span></label>
+                      <input value={form.companyName} onChange={(e) => set("companyName")(e.target.value)} placeholder="e.g. Acme Holdings Ltd" className={touched && newErrors.name ? inputErrCls : inputCls} />
+                      {touched && newErrors.name && <p className="mt-1 text-xs text-error-500">{newErrors.name}</p>}
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Country of Inc.</label>
+                      <input value={form.countryOfIncorporation} onChange={(e) => set("countryOfIncorporation")(e.target.value)} placeholder="e.g. HK" className={inputCls} />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Reg. Number</label>
+                      <input value={form.registrationNumber} onChange={(e) => set("registrationNumber")(e.target.value)} placeholder="e.g. 12345678" className={inputCls} />
+                    </div>
+                  </div>
+                )}
+
+                {/* Contact */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Email <span className="text-error-500">*</span></label>
+                    <input type="email" value={form.email} onChange={(e) => set("email")(e.target.value)} placeholder="email@example.com" className={touched && newErrors.email ? inputErrCls : inputCls} />
+                    {touched && newErrors.email && <p className="mt-1 text-xs text-error-500">{newErrors.email}</p>}
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Phone <span className="text-error-500">*</span></label>
+                    <input type="tel" value={form.phone} onChange={(e) => set("phone")(e.target.value)} placeholder="+852..." className={touched && newErrors.phone ? inputErrCls : inputCls} />
+                    {touched && newErrors.phone && <p className="mt-1 text-xs text-error-500">{newErrors.phone}</p>}
+                  </div>
+                </div>
+
+                {/* Address */}
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Address</p>
+                  <div className="space-y-2">
+                    <input value={form.street} onChange={(e) => set("street")(e.target.value)} placeholder="Street address" className={inputCls} />
+                    <div className="grid grid-cols-2 gap-2">
+                      <input value={form.city} onChange={(e) => set("city")(e.target.value)} placeholder="City" className={inputCls} />
+                      <input value={form.state} onChange={(e) => set("state")(e.target.value)} placeholder="State / Province" className={inputCls} />
+                      <input value={form.postalCode} onChange={(e) => set("postalCode")(e.target.value)} placeholder="Postal code" className={inputCls} />
+                      <div>
+                        <input value={form.country} onChange={(e) => set("country")(e.target.value)} placeholder="Country *" className={touched && newErrors.country ? inputErrCls : inputCls} />
+                        {touched && newErrors.country && <p className="mt-1 text-xs text-error-500">{newErrors.country}</p>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Shares + redistribution — only for shareholders */}
+                {isShareholder && (
+                  <div className="pt-2 border-t border-gray-200 dark:border-gray-700 space-y-3">
+                    <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Share Allocation</p>
+
+                    {/* Existing shareholders — adjustable */}
+                    {shareholders.filter((p) => p.roles.includes("shareholder")).length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          Adjust existing shareholders to free up shares for the new person.
+                        </p>
+                        {shareholders.filter((p) => p.roles.includes("shareholder")).map((p) => {
+                          const current = parseInt(adjustedShares[p.id] ?? String(p.shareholding.shares), 10) || 0;
+                          const original = p.shareholding.shares;
+                          const freed = original - current;
+                          const pct = ts > 0 ? ((current / ts) * 100).toFixed(1) : "0.0";
+                          const hasErr = touched && (isNaN(current) || current < 1 || current > original);
+                          return (
+                            <div key={p.id} className="flex items-center gap-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+                              <div className="w-6 h-6 rounded-full bg-brand-100 dark:bg-brand-500/20 flex items-center justify-center text-[10px] font-bold text-brand-600 dark:text-brand-400 flex-shrink-0">
+                                {(p.fullName || p.companyName || "?")[0].toUpperCase()}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-semibold text-gray-900 dark:text-white truncate">{p.fullName || p.companyName}</p>
+                                <p className="text-[10px] text-gray-500 dark:text-gray-400">
+                                  Original: {original.toLocaleString()} · New: {pct}%
+                                  {freed > 0 && <span className="text-brand-500 font-medium"> · freed {freed.toLocaleString()}</span>}
+                                </p>
+                              </div>
+                              <div className="flex-shrink-0 w-24">
+                                <input
+                                  type="number"
+                                  value={adjustedShares[p.id] ?? String(original)}
+                                  onChange={(e) => setAdjustedShares((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                                  min={1}
+                                  max={original}
+                                  className={(hasErr ? inputErrCls : inputCls) + " text-center text-xs py-1"}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {touched && newErrors.adjustments && (
+                          <p className="text-xs text-error-500">{newErrors.adjustments}</p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* New person's shares */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                          New Shareholder's Shares <span className="text-error-500">*</span>
+                        </label>
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-md ${availableForNew > 0 ? "bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400" : "bg-error-50 dark:bg-error-500/10 text-error-600 dark:text-error-400"}`}>
+                          {availableForNew.toLocaleString()} available
+                        </span>
+                      </div>
+                      <input
+                        type="number"
+                        value={form.shares}
+                        onChange={(e) => set("shares")(e.target.value)}
+                        placeholder={availableForNew > 0 ? `1 – ${availableForNew.toLocaleString()}` : "Free up shares above first"}
+                        disabled={availableForNew <= 0}
+                        min={1}
+                        max={availableForNew}
+                        className={touched && newErrors.shares ? inputErrCls : inputCls}
+                      />
+                      {touched && newErrors.shares && <p className="mt-1 text-xs text-error-500">{newErrors.shares}</p>}
+                      {!isNaN(sharesNum) && sharesNum > 0 && ts > 0 && (
+                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          = {((sharesNum / ts) * 100).toFixed(2)}% ownership
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Live total bar */}
+                    {ts > 0 && (
+                      <div className={`p-2.5 rounded-lg border text-xs ${totalAfterAdd === ts ? "bg-success-50 dark:bg-success-500/10 border-success-200 dark:border-success-500/20" : "bg-warning-50 dark:bg-warning-500/10 border-warning-200 dark:border-warning-500/20"}`}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className={`font-semibold ${totalAfterAdd === ts ? "text-success-700 dark:text-success-400" : "text-warning-700 dark:text-warning-400"}`}>
+                            {totalAfterAdd === ts ? "✓ Total = 100%" : `Total: ${totalAfterAdd.toLocaleString()} / ${ts.toLocaleString()}`}
+                          </span>
+                          {totalAfterAdd !== ts && (
+                            <span className="text-warning-600 dark:text-warning-400">
+                              {totalAfterAdd < ts ? `${(ts - totalAfterAdd).toLocaleString()} unallocated` : `over by ${(totalAfterAdd - ts).toLocaleString()}`}
+                            </span>
+                          )}
+                        </div>
+                        <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-300 ${totalAfterAdd > ts ? "bg-error-500" : totalAfterAdd === ts ? "bg-success-500" : "bg-warning-500"}`}
+                            style={{ width: `${Math.min((totalAfterAdd / ts) * 100, 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            )
-          ) : (
-            <div className="space-y-2">
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Full Name *</label>
-                <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. John Smith" className={inputCls} />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Email</label>
-                <input type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="email@example.com" className={inputCls} />
-              </div>
-            </div>
-          )}
-          <div className="flex gap-2 pt-1">
-            <button onClick={() => setOpen(false)} className="flex-1 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">Cancel</button>
-            <button onClick={handleAdd} disabled={mode === "existing" ? !selectedId : !newName.trim()} className="flex-1 px-3 py-1.5 text-xs font-medium text-white bg-brand-500 hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-colors">Add</button>
+            )}
+          </div>
+
+          {/* Footer buttons */}
+          <div className="flex gap-2 p-4 border-t border-gray-200 dark:border-gray-700">
+            <button onClick={() => { reset(); setOpen(false); }} className="flex-1 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+              Cancel
+            </button>
+            <button
+              onClick={handleAdd}
+              disabled={mode === "existing" ? !selectedId : false}
+              className="flex-1 px-3 py-1.5 text-xs font-medium text-white bg-brand-500 hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-colors"
+            >
+              Add {newRole === "shareholder" ? "Shareholder" : "Director"}
+            </button>
           </div>
         </div>
       )}
@@ -678,10 +1087,12 @@ function AddPersonDropdown({
 
 // ─── Section: Applicant Information ──────────────────────────────────────────
 
-function ApplicantSection({ data, onSave }: { data: RegistrationDetail["applicant"]; onSave: (d: RegistrationDetail["applicant"]) => void }) {
+function ApplicantSection({ data, onSave }: { data: RegistrationDetail["applicant"]; onSave: (d: RegistrationDetail["applicant"]) => Promise<void> }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(data);
   const [touched, setTouched] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const set = (k: keyof typeof draft) => (v: string) => { setTouched(true); setDraft((p) => ({ ...p, [k]: v })); };
 
   const errors = {
@@ -692,13 +1103,23 @@ function ApplicantSection({ data, onSave }: { data: RegistrationDetail["applican
   };
   const isValid = Object.values(errors).every((e) => !e);
 
+  const handleSave = async () => {
+    setTouched(true);
+    if (!isValid) return;
+    setSaving(true); setSaveError("");
+    try { await onSave(draft); setEditing(false); }
+    catch (err) { setSaveError(err instanceof Error ? err.message : "Save failed"); }
+    finally { setSaving(false); }
+  };
+
   return (
     <SectionCard icon={LuUser} title="Applicant Information" subtitle="Primary contact details"
       editing={editing}
-      onEdit={() => { setDraft(data); setTouched(false); setEditing(true); }}
-      onSave={() => { setTouched(true); if (!isValid) return; onSave(draft); setEditing(false); }}
+      onEdit={() => { setDraft(data); setTouched(false); setSaveError(""); setEditing(true); }}
+      onSave={handleSave}
       onCancel={() => setEditing(false)}
       saveDisabled={editing && touched && !isValid}
+      saving={saving} saveError={saveError}
     >
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
         <Field label="First Name" value={editing ? draft.firstName : data.firstName} editing={editing} onChange={set("firstName")} required error={touched ? errors.firstName : ""} />
@@ -714,10 +1135,12 @@ function ApplicantSection({ data, onSave }: { data: RegistrationDetail["applican
 
 const BUSINESS_NATURE_OPTIONS = ["E-Commerce", "Consulting", "Services", "Trading", "IT / SaaS", "Import/Export"];
 
-function CompanySection({ data, onSave }: { data: RegistrationDetail["company"]; onSave: (d: RegistrationDetail["company"]) => void }) {
+function CompanySection({ data, onSave }: { data: RegistrationDetail["company"]; onSave: (d: RegistrationDetail["company"]) => Promise<void> }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(data);
   const [touched, setTouched] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const set = (k: keyof typeof draft) => (v: string) => { setTouched(true); setDraft((p) => ({ ...p, [k]: v })); };
   const display = editing ? draft : data;
 
@@ -740,13 +1163,23 @@ function CompanySection({ data, onSave }: { data: RegistrationDetail["company"];
     }));
   };
 
+  const handleSave = async () => {
+    setTouched(true);
+    if (!isValid) return;
+    setSaving(true); setSaveError("");
+    try { await onSave(draft); setEditing(false); }
+    catch (err) { setSaveError(err instanceof Error ? err.message : "Save failed"); }
+    finally { setSaving(false); }
+  };
+
   return (
     <SectionCard icon={LuBuilding2} title="Company Information" subtitle="Incorporation details"
       editing={editing}
-      onEdit={() => { setDraft(data); setTouched(false); setEditing(true); }}
-      onSave={() => { setTouched(true); if (!isValid) return; onSave(draft); setEditing(false); }}
+      onEdit={() => { setDraft(data); setTouched(false); setSaveError(""); setEditing(true); }}
+      onSave={handleSave}
       onCancel={() => setEditing(false)}
       saveDisabled={editing && touched && !isValid}
+      saving={saving} saveError={saveError}
     >
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
         <Field label="Country of Incorporation" value={display.countryOfIncorporation} editing={editing} onChange={set("countryOfIncorporation")} required error={touched ? errors.countryOfIncorporation : ""} />
@@ -814,11 +1247,13 @@ function ShareCapitalSection({
   data, persons, onSave, onPersonsChange,
 }: {
   data: RegistrationDetail["shareCapital"]; persons: Person[];
-  onSave: (d: RegistrationDetail["shareCapital"]) => void; onPersonsChange: (p: Person[]) => void;
+  onSave: (d: RegistrationDetail["shareCapital"], p: Person[]) => Promise<void>; onPersonsChange: (p: Person[]) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(data);
   const [draftPersons, setDraftPersons] = useState(persons);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   const display = editing ? draft : data;
   const displayPersons = editing ? draftPersons : persons;
@@ -848,13 +1283,22 @@ function ShareCapitalSection({
   const fieldValid = Object.values(fieldErrors).every((e) => !e);
   const canSave = remaining === 0 && allocated === draft.totalShares && fieldValid;
 
+  const handleSave = async () => {
+    if (!canSave) return;
+    setSaving(true); setSaveError("");
+    try { await onSave(draft, draftPersons); onPersonsChange(draftPersons); setEditing(false); }
+    catch (err) { setSaveError(err instanceof Error ? err.message : "Save failed"); }
+    finally { setSaving(false); }
+  };
+
   return (
     <SectionCard icon={LuFileChartPie} title="Share Capital" subtitle="Capital structure & shareholder distribution"
       editing={editing}
-      onEdit={() => { setDraft(data); setDraftPersons(persons); setEditing(true); }}
-      onSave={() => { if (!canSave) return; onSave(draft); onPersonsChange(draftPersons); setEditing(false); }}
+      onEdit={() => { setDraft(data); setDraftPersons(persons); setSaveError(""); setEditing(true); }}
+      onSave={handleSave}
       onCancel={() => setEditing(false)}
       saveDisabled={editing && !canSave}
+      saving={saving} saveError={saveError}
     >
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-4">
         <div>
@@ -988,7 +1432,7 @@ function PersonCard({
 
   return (
     <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-visible">
-      <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800/60 flex items-center justify-between border-b border-gray-200 dark:border-gray-700">
+      <div className="px-4 py-3 bg-gray-50 rounded-t-xl dark:bg-gray-800/60 flex items-center justify-between border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 rounded-full bg-brand-100 dark:bg-brand-500/20 flex items-center justify-center text-xs font-bold text-brand-600 dark:text-brand-400">{index + 1}</div>
           <div>
@@ -1081,33 +1525,82 @@ function PersonCard({
 
 // ─── Section: Shareholders ────────────────────────────────────────────────────
 
-function ShareholdersSection({ persons, totalShares, onSave }: { persons: Person[]; totalShares: number; onSave: (p: Person[]) => void }) {
+function ShareholdersSection({
+  persons, totalShares, onSave,
+  sharedDraft, onSharedDraftChange,
+}: {
+  persons: Person[]; totalShares: number; onSave: (p: Person[]) => Promise<void>;
+  sharedDraft: Person[] | null; onSharedDraftChange: (p: Person[]) => void;
+}) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(persons);
   const [touched, setTouched] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+
+  // Use shared draft while editing so directors section stays in sync
+  const draft = sharedDraft ?? persons;
+  const setDraft = (updater: Person[] | ((prev: Person[]) => Person[])) => {
+    const next = typeof updater === "function" ? updater(sharedDraft ?? persons) : updater;
+    onSharedDraftChange(next);
+  };
 
   const draftShareholders = draft.filter((p) => p.roles.includes("shareholder"));
   const displayPersons = editing ? draft : persons;
   const displayShareholders = displayPersons.filter((p) => p.roles.includes("shareholder"));
   const allPersonsValid = draftShareholders.every((p) => Object.values(validatePerson(p)).every((e) => !e));
 
+  // Candidates = directors in shared draft that aren't already shareholders
   const directorCandidates = draft.filter((p) => p.roles.includes("director") && !p.roles.includes("shareholder"));
 
   const updatePerson = (id: string, updated: Person) => setDraft((prev) => prev.map((p) => (p.id === id ? updated : p)));
   const removeShareholder = (id: string) => setDraft((prev) => prev.filter((p) => p.id !== id));
-  const addExistingShareholder = (personId: string) =>
-    setDraft((prev) => prev.map((p) => p.id === personId && !p.roles.includes("shareholder") ? { ...p, roles: [...p.roles, "shareholder"], shareholding: { shares: Math.max(1, p.shareholding.shares), percentage: 0 } } : p));
-  const addNewShareholder = (person: Person) =>
-    setDraft((prev) => [...prev, { ...person, shareholding: { shares: Math.max(1, person.shareholding.shares), percentage: 0 } }]);
+  const addExistingShareholder = (personId: string, adjustments: { id: string; shares: number }[], newShares: number) => {
+    setDraft((prev) => {
+      let updated = prev.map((p) => {
+        if (p.id === personId && !p.roles.includes("shareholder")) {
+          return { ...p, roles: [...p.roles, "shareholder"], shareholding: { shares: newShares, percentage: 0 } };
+        }
+        const adj = adjustments.find((a) => a.id === p.id);
+        return adj ? { ...p, shareholding: { shares: adj.shares, percentage: 0 } } : p;
+      });
+      return recalcPercentages(updated, totalShares);
+    });
+  };
+  const addNewWithAdjustments = (person: Person, adjustments: { id: string; shares: number }[]) => {
+    setDraft((prev) => {
+      let updated = prev.map((p) => {
+        const adj = adjustments.find((a) => a.id === p.id);
+        return adj ? { ...p, shareholding: { shares: adj.shares, percentage: 0 } } : p;
+      });
+      updated = [...updated, { ...person, shareholding: { shares: person.shareholding.shares, percentage: 0 } }];
+      return recalcPercentages(updated, totalShares);
+    });
+  };
+
+  const handleSave = async () => {
+    setTouched(true);
+    if (!allPersonsValid) return;
+    setSaving(true); setSaveError("");
+    try { await onSave(draft); setEditing(false); }
+    catch (err) { setSaveError(err instanceof Error ? err.message : "Save failed"); }
+    finally { setSaving(false); }
+  };
 
   return (
     <SectionCard icon={LuUsers} title="Shareholders" subtitle="Detailed shareholder information"
       editing={editing}
-      onEdit={() => { setDraft(persons); setTouched(false); setEditing(true); }}
-      onSave={() => { setTouched(true); if (!allPersonsValid) return; onSave(draft); setEditing(false); }}
-      onCancel={() => setEditing(false)}
+      onEdit={() => { onSharedDraftChange(persons); setTouched(false); setSaveError(""); setEditing(true); }}
+      onSave={handleSave}
+      onCancel={() => { onSharedDraftChange(persons); setEditing(false); }}
       saveDisabled={editing && touched && !allPersonsValid}
-      extraHeader={editing ? <AddPersonDropdown label="Add Shareholder" candidates={directorCandidates} candidateRole="director" newRole="shareholder" onAddExisting={addExistingShareholder} onAddNew={addNewShareholder} /> : undefined}
+      saving={saving} saveError={saveError}
+      extraHeader={editing ? (
+        <AddPersonDropdown
+          label="Add Shareholder" candidates={directorCandidates} candidateRole="director" newRole="shareholder"
+          onAddExisting={addExistingShareholder} onAddNewWithAdjustments={addNewWithAdjustments}
+          totalShares={totalShares} currentShareholders={draft}
+        />
+      ) : undefined}
     >
       <div className="space-y-4">
         {displayShareholders.map((p, i) => {
@@ -1126,32 +1619,76 @@ function ShareholdersSection({ persons, totalShares, onSave }: { persons: Person
 
 // ─── Section: Directors ───────────────────────────────────────────────────────
 
-function DirectorsSection({ persons, totalShares, onSave }: { persons: Person[]; totalShares: number; onSave: (p: Person[]) => void }) {
+function DirectorsSection({
+  persons, totalShares, onSave,
+  sharedDraft, onSharedDraftChange,
+}: {
+  persons: Person[]; totalShares: number; onSave: (p: Person[]) => Promise<void>;
+  sharedDraft: Person[] | null; onSharedDraftChange: (p: Person[]) => void;
+}) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(persons);
   const [touched, setTouched] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+
+  // Use shared draft while editing so shareholders section stays in sync
+  const draft = sharedDraft ?? persons;
+  const setDraft = (updater: Person[] | ((prev: Person[]) => Person[])) => {
+    const next = typeof updater === "function" ? updater(sharedDraft ?? persons) : updater;
+    onSharedDraftChange(next);
+  };
 
   const draftDirectors = draft.filter((p) => p.roles.includes("director"));
   const displayPersons = editing ? draft : persons;
   const displayDirectors = displayPersons.filter((p) => p.roles.includes("director"));
   const allPersonsValid = draftDirectors.every((p) => Object.values(validatePerson(p)).every((e) => !e));
 
+  // Candidates = shareholders in shared draft that aren't already directors
   const shareholderCandidates = draft.filter((p) => p.roles.includes("shareholder") && !p.roles.includes("director"));
 
   const updatePerson = (id: string, updated: Person) => setDraft((prev) => prev.map((p) => (p.id === id ? updated : p)));
   const removeDirector = (id: string) => setDraft((prev) => prev.filter((p) => p.id !== id));
   const addExistingDirector = (personId: string) =>
     setDraft((prev) => prev.map((p) => p.id === personId && !p.roles.includes("director") ? { ...p, roles: [...p.roles, "director"] } : p));
-  const addNewDirector = (person: Person) => setDraft((prev) => [...prev, person]);
+  const addNewDirectorWithAdjustments = (person: Person, adjustments: { id: string; shares: number }[]) => {
+    setDraft((prev) => {
+      // If the new person is also a shareholder (adjustments present), apply share redistribution
+      if (adjustments.length > 0) {
+        let updated = prev.map((p) => {
+          const adj = adjustments.find((a) => a.id === p.id);
+          return adj ? { ...p, shareholding: { shares: adj.shares, percentage: 0 } } : p;
+        });
+        updated = [...updated, { ...person, shareholding: { shares: person.shareholding.shares, percentage: 0 } }];
+        return recalcPercentages(updated, totalShares);
+      }
+      return [...prev, person];
+    });
+  };
+
+  const handleSave = async () => {
+    setTouched(true);
+    if (!allPersonsValid) return;
+    setSaving(true); setSaveError("");
+    try { await onSave(draft); setEditing(false); }
+    catch (err) { setSaveError(err instanceof Error ? err.message : "Save failed"); }
+    finally { setSaving(false); }
+  };
 
   return (
     <SectionCard icon={LuUserCheck} title="Directors" subtitle="Company director information"
       editing={editing}
-      onEdit={() => { setDraft(persons); setTouched(false); setEditing(true); }}
-      onSave={() => { setTouched(true); if (!allPersonsValid) return; onSave(draft); setEditing(false); }}
-      onCancel={() => setEditing(false)}
+      onEdit={() => { onSharedDraftChange(persons); setTouched(false); setSaveError(""); setEditing(true); }}
+      onSave={handleSave}
+      onCancel={() => { onSharedDraftChange(persons); setEditing(false); }}
       saveDisabled={editing && touched && !allPersonsValid}
-      extraHeader={editing ? <AddPersonDropdown label="Add Director" candidates={shareholderCandidates} candidateRole="shareholder" newRole="director" onAddExisting={addExistingDirector} onAddNew={addNewDirector} /> : undefined}
+      saving={saving} saveError={saveError}
+      extraHeader={editing ? (
+        <AddPersonDropdown
+          label="Add Director" candidates={shareholderCandidates} candidateRole="shareholder" newRole="director"
+          onAddExisting={(personId) => addExistingDirector(personId)} onAddNewWithAdjustments={addNewDirectorWithAdjustments}
+          totalShares={totalShares} currentShareholders={draft}
+        />
+      ) : undefined}
     >
       <div className="space-y-4">
         {displayDirectors.map((p, i) => {
@@ -1170,17 +1707,27 @@ function DirectorsSection({ persons, totalShares, onSave }: { persons: Person[];
 
 // ─── Section: Services ────────────────────────────────────────────────────────
 
-function ServicesSection({ data, onSave }: { data: RegistrationDetail["services"]; onSave: (d: RegistrationDetail["services"]) => void }) {
+function ServicesSection({ data, onSave }: { data: RegistrationDetail["services"]; onSave: (d: RegistrationDetail["services"]) => Promise<void> }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(data);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const display = editing ? draft : data;
+
+  const handleSave = async () => {
+    setSaving(true); setSaveError("");
+    try { await onSave(draft); setEditing(false); }
+    catch (err) { setSaveError(err instanceof Error ? err.message : "Save failed"); }
+    finally { setSaving(false); }
+  };
 
   return (
     <SectionCard icon={LuBriefcase} title="Banking & Additional Services" subtitle="Selected service packages"
       editing={editing}
-      onEdit={() => { setDraft(data); setEditing(true); }}
-      onSave={() => { onSave(draft); setEditing(false); }}
+      onEdit={() => { setDraft(data); setSaveError(""); setEditing(true); }}
+      onSave={handleSave}
       onCancel={() => setEditing(false)}
+      saving={saving} saveError={saveError}
     >
       <div className="space-y-6">
         <div>
@@ -1227,10 +1774,12 @@ function ServicesSection({ data, onSave }: { data: RegistrationDetail["services"
 
 // ─── Section: Billing ─────────────────────────────────────────────────────────
 
-function BillingSection({ data, onSave }: { data: RegistrationDetail["billing"]; onSave: (d: RegistrationDetail["billing"]) => void }) {
+function BillingSection({ data, onSave }: { data: RegistrationDetail["billing"]; onSave: (d: RegistrationDetail["billing"]) => Promise<void> }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(data);
   const [touched, setTouched] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const set = (k: keyof Omit<typeof draft, "address">) => (v: string) => { setTouched(true); setDraft((p) => ({ ...p, [k]: v })); };
   const setAddr = (k: keyof typeof draft.address) => (v: string) => { setTouched(true); setDraft((p) => ({ ...p, address: { ...p.address, [k]: v } })); };
   const display = editing ? draft : data;
@@ -1246,13 +1795,23 @@ function BillingSection({ data, onSave }: { data: RegistrationDetail["billing"];
   };
   const isValid = Object.values(errors).every((e) => !e);
 
+  const handleSave = async () => {
+    setTouched(true);
+    if (!isValid) return;
+    setSaving(true); setSaveError("");
+    try { await onSave(draft); setEditing(false); }
+    catch (err) { setSaveError(err instanceof Error ? err.message : "Save failed"); }
+    finally { setSaving(false); }
+  };
+
   return (
     <SectionCard icon={LuCreditCard} title="Billing Information" subtitle="Invoice and payment details"
       editing={editing}
-      onEdit={() => { setDraft(data); setTouched(false); setEditing(true); }}
-      onSave={() => { setTouched(true); if (!isValid) return; onSave(draft); setEditing(false); }}
+      onEdit={() => { setDraft(data); setTouched(false); setSaveError(""); setEditing(true); }}
+      onSave={handleSave}
       onCancel={() => setEditing(false)}
       saveDisabled={editing && touched && !isValid}
+      saving={saving} saveError={saveError}
     >
       <div className="space-y-5">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
@@ -1406,7 +1965,46 @@ function RegistrationDetailContent({ id }: { id: string }) {
     }
   };
 
+  // ── PATCH helper ──────────────────────────────────────────────────────────
+  const patchRegistration = async (body: Record<string, unknown>) => {
+    const res = await authFetch(`${API_BASE_URL}/api/v1/registrations/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to save changes");
+    return data;
+  };
+
+  // Serialise a Person to the nested shape the PATCH API expects
+  const personToApiShape = (p: Person) => ({
+    ...(isNaN(Number(p.id)) ? {} : { id: Number(p.id) }),
+    type: p.type,
+    roles: p.roles,
+    fullName: p.fullName || null,
+    companyName: p.companyName || null,
+    countryOfIncorporation: p.countryOfIncorporation || null,
+    registrationNumber: p.registrationNumber || null,
+    nationality: p.nationality || null,
+    email: p.email || null,
+    phone: p.phone || null,
+    residentialAddress: {
+      street: p.residentialAddress.street || null,
+      city: p.residentialAddress.city || null,
+      state: p.residentialAddress.state || null,
+      postalCode: p.residentialAddress.postalCode || null,
+      country: p.residentialAddress.country || null,
+    },
+    shareholding: {
+      shares: p.shareholding.shares,
+      percentage: p.shareholding.percentage,
+    },
+  });
+
   const updatePersons = (p: Person[]) => setReg((r) => r ? { ...r, persons: p } : r);
+
+  // Shared draft for Shareholders + Directors sections so they see each other's changes while editing
+  const [sharedPersonsDraft, setSharedPersonsDraft] = useState<Person[] | null>(null);
 
   if (loading) return <LoadingSkeleton />;
 
@@ -1481,20 +2079,104 @@ function RegistrationDetailContent({ id }: { id: string }) {
       </div>
 
       {/* Sections */}
-      <ApplicantSection data={reg.applicant} onSave={(d) => setReg((r) => r ? { ...r, applicant: d } : r)} />
-      <CompanySection data={reg.company} onSave={(d) => setReg((r) => r ? { ...r, company: d } : r)} />
+      <ApplicantSection
+        data={reg.applicant}
+        onSave={async (d) => {
+          await patchRegistration({
+            applicant: {
+              firstName: d.firstName,
+              lastName: d.lastName,
+              email: d.email,
+              phone: d.phone,
+            },
+          });
+          setReg((r) => r ? { ...r, applicant: d } : r);
+        }}
+      />
+      <CompanySection
+        data={reg.company}
+        onSave={async (d) => {
+          await patchRegistration({
+            company: {
+              countryOfIncorporation: d.countryOfIncorporation,
+              type: d.type,
+              proposedCompanyName: d.proposedCompanyName,
+              alternativeNames: d.alternativeNames,
+              natureOfBusiness: d.natureOfBusiness,
+              businessScope: d.businessScope,
+              businessScopeDescription: d.businessScopeDescription,
+            },
+          });
+          setReg((r) => r ? { ...r, company: d } : r);
+        }}
+      />
 
       <ShareCapitalSection
         data={reg.shareCapital}
         persons={reg.persons}
-        onSave={(d) => setReg((r) => r ? { ...r, shareCapital: d } : r)}
+        onSave={async (d, p) => {
+          await patchRegistration({
+            shareCapitalCurrency: d.currency,
+            shareCapitalAmount: d.totalAmount,
+            totalShares: d.totalShares,
+            persons: p.map(personToApiShape),
+          });
+          setReg((r) => r ? { ...r, shareCapital: d } : r);
+          updatePersons(p);
+        }}
         onPersonsChange={updatePersons}
       />
 
-      <ShareholdersSection persons={reg.persons} totalShares={reg.shareCapital.totalShares} onSave={updatePersons} />
-      <DirectorsSection persons={reg.persons} totalShares={reg.shareCapital.totalShares} onSave={updatePersons} />
-      <ServicesSection data={reg.services} onSave={(d) => setReg((r) => r ? { ...r, services: d } : r)} />
-      <BillingSection data={reg.billing} onSave={(d) => setReg((r) => r ? { ...r, billing: d } : r)} />
+      <ShareholdersSection
+        persons={reg.persons}
+        totalShares={reg.shareCapital.totalShares}
+        sharedDraft={sharedPersonsDraft}
+        onSharedDraftChange={setSharedPersonsDraft}
+        onSave={async (p) => {
+          await patchRegistration({ persons: p.map(personToApiShape) });
+          updatePersons(p);
+          setSharedPersonsDraft(null);
+        }}
+      />
+      <DirectorsSection
+        persons={reg.persons}
+        totalShares={reg.shareCapital.totalShares}
+        sharedDraft={sharedPersonsDraft}
+        onSharedDraftChange={setSharedPersonsDraft}
+        onSave={async (p) => {
+          await patchRegistration({ persons: p.map(personToApiShape) });
+          updatePersons(p);
+          setSharedPersonsDraft(null);
+        }}
+      />
+      <ServicesSection
+        data={reg.services}
+        onSave={async (d) => {
+          await patchRegistration({
+            bankingProviders: d.banking.providers,
+            preferredBankingProvider: d.banking.preferredProvider,
+            additionalServices: d.additionalServices,
+          });
+          setReg((r) => r ? { ...r, services: d } : r);
+        }}
+      />
+      <BillingSection
+        data={reg.billing}
+        onSave={async (d) => {
+          await patchRegistration({
+            billingName: d.name,
+            billingEmail: d.email,
+            billingPhone: d.phone,
+            billingStreet: d.address.street,
+            billingCity: d.address.city,
+            billingState: d.address.state,
+            billingPostalCode: d.address.postalCode,
+            billingCountry: d.address.country,
+            billingPaymentMethod: d.paymentMethod,
+          });
+          setReg((r) => r ? { ...r, billing: d } : r);
+        }}
+      />
       <ComplianceSection data={reg.complianceAccepted} />
     </div>
   );
