@@ -107,14 +107,14 @@ function RegistrationActionsCell({
       >
         <LuEye className="w-5 h-5" />
       </button>
-      <button
+      {/* <button
         onClick={canUpdate ? onEdit : undefined}
         disabled={!canUpdate}
         className="p-2 text-gray-600 hover:text-brand-500 dark:text-gray-400 dark:hover:text-brand-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-gray-600 dark:disabled:hover:text-gray-400"
         title="Edit"
       >
         <LuPencil className="w-5 h-5" />
-      </button>
+      </button> */}
       <button
         className="p-2 text-gray-600 hover:text-brand-500 dark:text-gray-400 dark:hover:text-brand-400 transition-colors"
         title="Download"

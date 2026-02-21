@@ -32,6 +32,8 @@ import {
   useModulePermission,
 } from "@/context/PermissionContext";
 import { authFetch, API_BASE_URL } from "@/lib/auth";
+import Checkbox from "@/components/form/input/Checkbox";
+import Radio from "@/components/form/input/Radio";
 
 // ─── Backend API types (flat shape from GET /api/v1/registrations/:id) ────────
 
@@ -1216,10 +1218,7 @@ function CompanySection({ data, onSave }: { data: RegistrationDetail["company"];
             <>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {BUSINESS_NATURE_OPTIONS.map((opt) => (
-                  <label key={opt} className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={draft.natureOfBusiness.includes(opt)} onChange={() => toggleNature(opt)} className="w-4 h-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500" />
-                    <span className="text-sm text-gray-700 dark:text-gray-300">{opt}</span>
-                  </label>
+                  <Checkbox key={opt} label={opt} checked={draft.natureOfBusiness.includes(opt)} onChange={() => toggleNature(opt)} />
                 ))}
               </div>
               {touched && errors.natureOfBusiness && <p className="mt-1 text-xs text-error-500 dark:text-error-400">{errors.natureOfBusiness}</p>}
@@ -1707,12 +1706,46 @@ function DirectorsSection({
 
 // ─── Section: Services ────────────────────────────────────────────────────────
 
+const BANKING_PROVIDER_OPTIONS = [
+  "Airwallex", "PayPal", "Payoneer", "Currenxie", "Stripe", "Bank Account Assistance", "No Bank Account Needed",
+];
+
+const ADDITIONAL_SERVICE_OPTIONS = [
+  "Annual Secretarial Service", "Registered Address Renewal",
+  "Accounting & Bookkeeping", "Audit Arrangement",
+  "BR Renewal Handling", "Virtual Office",
+  "Phone Number / E-Fax", "Nominee Shareholder Service",
+  "Nominee Director Service", "Compliance Support",
+  "Visa Application Support", "PayPal / Stripe Setup Guidance",
+];
+
 function ServicesSection({ data, onSave }: { data: RegistrationDetail["services"]; onSave: (d: RegistrationDetail["services"]) => Promise<void> }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(data);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const display = editing ? draft : data;
+
+  const toggleBanking = (opt: string) => {
+    setDraft((prev) => {
+      const has = prev.banking.providers.includes(opt);
+      const providers = has ? prev.banking.providers.filter((p) => p !== opt) : [...prev.banking.providers, opt];
+      // If preferred provider was removed, reset to first available or empty
+      const preferredProvider = providers.includes(prev.banking.preferredProvider)
+        ? prev.banking.preferredProvider
+        : providers[0] || "";
+      return { ...prev, banking: { providers, preferredProvider } };
+    });
+  };
+
+  const toggleService = (opt: string) => {
+    setDraft((prev) => ({
+      ...prev,
+      additionalServices: prev.additionalServices.includes(opt)
+        ? prev.additionalServices.filter((s) => s !== opt)
+        : [...prev.additionalServices, opt],
+    }));
+  };
 
   const handleSave = async () => {
     setSaving(true); setSaveError("");
@@ -1730,42 +1763,83 @@ function ServicesSection({ data, onSave }: { data: RegistrationDetail["services"
       saving={saving} saveError={saveError}
     >
       <div className="space-y-6">
+        {/* Banking Providers */}
         <div>
-          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Banking Services</p>
-          <div className="flex flex-wrap gap-2 mb-3">
-            {display.banking.providers.length > 0
-              ? display.banking.providers.map((p) => (
-                <span key={p} className="px-3 py-1.5 text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg">{p}</span>
-              ))
-              : <span className="text-sm text-gray-400 dark:text-gray-600 italic font-normal">None selected</span>}
-          </div>
-          {display.banking.preferredProvider && (
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Preferred Provider</label>
-              {editing ? (
-                <select value={draft.banking.preferredProvider}
-                  onChange={(e) => setDraft((p) => ({ ...p, banking: { ...p.banking, preferredProvider: e.target.value } }))}
-                  className={inputCls + " w-auto"}>
-                  {draft.banking.providers.map((pv) => <option key={pv}>{pv}</option>)}
-                </select>
-              ) : (
-                <span className="px-3 py-1.5 text-sm font-semibold bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-400 rounded-lg">
-                  {display.banking.preferredProvider}
-                </span>
+          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Bank Account Opening Services</p>
+          {editing ? (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                {BANKING_PROVIDER_OPTIONS.map((opt) => (
+                  <div key={opt} className="p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                    <Checkbox label={opt} checked={draft.banking.providers.includes(opt)} onChange={() => toggleBanking(opt)} />
+                  </div>
+                ))}
+              </div>
+              {/* Preferred Provider — only if at least one selected */}
+              {draft.banking.providers.length > 0 && (
+                <div className="mt-4">
+                  <p className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Preferred Provider</p>
+                  <div className="flex flex-wrap gap-4">
+                    {draft.banking.providers.map((pv) => (
+                      <Radio key={pv} id={`pref-${pv}`} name="preferredProvider" value={pv} label={pv}
+                        checked={draft.banking.preferredProvider === pv}
+                        onChange={() => setDraft((p) => ({ ...p, banking: { ...p.banking, preferredProvider: pv } }))} />
+                    ))}
+                  </div>
+                </div>
               )}
+            </>
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-2 mb-3">
+                {display.banking.providers.length > 0
+                  ? display.banking.providers.map((p) => (
+                    <span key={p} className="px-3 py-1.5 text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg">{p}</span>
+                  ))
+                  : <span className="text-sm text-gray-400 dark:text-gray-600 italic font-normal">None selected</span>}
+              </div>
+              {display.banking.preferredProvider && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Preferred Provider</label>
+                  <span className="px-3 py-1.5 text-sm font-semibold bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-400 rounded-lg">
+                    {display.banking.preferredProvider}
+                  </span>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="h-px bg-gray-200 dark:bg-gray-700" />
+
+        {/* Additional Services */}
+        <div>
+          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Additional Services</p>
+          {editing ? (
+            <div className="grid grid-cols-2 gap-2">
+              {ADDITIONAL_SERVICE_OPTIONS.map((opt) => (
+                <div key={opt} className="p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                  <Checkbox label={opt} checked={draft.additionalServices.includes(opt)} onChange={() => toggleService(opt)} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {display.additionalServices.length > 0
+                ? display.additionalServices.map((s) => (
+                  <span key={s} className="px-3 py-1.5 text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg">{s}</span>
+                ))
+                : <span className="text-sm text-gray-400 dark:text-gray-600 italic font-normal">None selected</span>}
             </div>
           )}
         </div>
-        <div className="h-px bg-gray-200 dark:bg-gray-700" />
-        <div>
-          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Additional Services</p>
-          <div className="flex flex-wrap gap-2">
-            {display.additionalServices.length > 0
-              ? display.additionalServices.map((s) => (
-                <span key={s} className="px-3 py-1.5 text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg">{s}</span>
-              ))
-              : <span className="text-sm text-gray-400 dark:text-gray-600 italic font-normal">None selected</span>}
-          </div>
+
+        {/* Summary */}
+        <div className="p-3 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+          <p className="text-xs font-semibold text-gray-600 dark:text-gray-400">Service Selection Summary</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Banking Services: {display.banking.providers.length} selected · Additional Services: {display.additionalServices.length} selected
+          </p>
         </div>
       </div>
     </SectionCard>
@@ -2116,9 +2190,11 @@ function RegistrationDetailContent({ id }: { id: string }) {
         persons={reg.persons}
         onSave={async (d, p) => {
           await patchRegistration({
-            shareCapitalCurrency: d.currency,
-            shareCapitalAmount: d.totalAmount,
-            totalShares: d.totalShares,
+            shareCapital: {
+              currency: d.currency,
+              totalAmount: d.totalAmount,
+              totalShares: d.totalShares,
+            },
             persons: p.map(personToApiShape),
           });
           setReg((r) => r ? { ...r, shareCapital: d } : r);
@@ -2153,9 +2229,13 @@ function RegistrationDetailContent({ id }: { id: string }) {
         data={reg.services}
         onSave={async (d) => {
           await patchRegistration({
-            bankingProviders: d.banking.providers,
-            preferredBankingProvider: d.banking.preferredProvider,
-            additionalServices: d.additionalServices,
+            services: {
+              banking: {
+                providers: d.banking.providers,
+                preferredProvider: d.banking.preferredProvider,
+              },
+              additionalServices: d.additionalServices,
+            },
           });
           setReg((r) => r ? { ...r, services: d } : r);
         }}
@@ -2164,15 +2244,19 @@ function RegistrationDetailContent({ id }: { id: string }) {
         data={reg.billing}
         onSave={async (d) => {
           await patchRegistration({
-            billingName: d.name,
-            billingEmail: d.email,
-            billingPhone: d.phone,
-            billingStreet: d.address.street,
-            billingCity: d.address.city,
-            billingState: d.address.state,
-            billingPostalCode: d.address.postalCode,
-            billingCountry: d.address.country,
-            billingPaymentMethod: d.paymentMethod,
+            billing: {
+              name: d.name,
+              email: d.email,
+              phone: d.phone,
+              address: {
+                street: d.address.street,
+                city: d.address.city,
+                state: d.address.state,
+                postalCode: d.address.postalCode,
+                country: d.address.country,
+              },
+              paymentMethod: d.paymentMethod,
+            },
           });
           setReg((r) => r ? { ...r, billing: d } : r);
         }}
