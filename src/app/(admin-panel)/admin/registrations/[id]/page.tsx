@@ -324,6 +324,13 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+async function getSignedUrl(fileKey: string): Promise<string> {
+  const res = await authFetch(`${API_BASE_URL}/api/v1/uploads/signed-url?key=${encodeURIComponent(fileKey)}`);
+  if (!res.ok) throw new Error("Failed to get signed URL");
+  const data = await res.json();
+  return data.url || data.signedUrl;
+}
+
 function formatTimestamp(ts: string) {
   if (!ts) return "—";
   // ISO date string
@@ -460,6 +467,38 @@ function Field({
 
 function DocumentRow({ doc }: { doc: DocumentFile }) {
   const isImage = doc.mimeType.startsWith("image/");
+  const [viewing, setViewing] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  async function handleView() {
+    setViewing(true);
+    try {
+      const url = await getSignedUrl(doc.key);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch {
+      alert("Could not load document. Please try again.");
+    } finally {
+      setViewing(false);
+    }
+  }
+
+  async function handleDownload() {
+    setDownloading(true);
+    try {
+      const url = await getSignedUrl(doc.key);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = doc.fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch {
+      alert("Could not download document. Please try again.");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg group hover:bg-gray-100 dark:hover:bg-gray-700/60 transition-colors">
       <div className="flex items-center gap-3 min-w-0">
@@ -472,11 +511,11 @@ function DocumentRow({ doc }: { doc: DocumentFile }) {
         </div>
       </div>
       <div className="flex items-center gap-1 flex-shrink-0 ml-3 opacity-0 group-hover:opacity-100 transition-opacity">
-        <a href={doc.url} target="_blank" rel="noopener noreferrer" className="p-1.5 text-gray-500 hover:text-brand-500 dark:text-gray-400 dark:hover:text-brand-400 rounded-lg hover:bg-white dark:hover:bg-gray-700 transition-colors" title="View">
-          <LuExternalLink className="w-4 h-4" />
-        </a>
-        <button className="p-1.5 text-gray-500 hover:text-brand-500 dark:text-gray-400 dark:hover:text-brand-400 rounded-lg hover:bg-white dark:hover:bg-gray-700 transition-colors" title="Download">
-          <LuDownload className="w-4 h-4" />
+        <button onClick={handleView} disabled={viewing || downloading} className="p-1.5 text-gray-500 hover:text-brand-500 dark:text-gray-400 dark:hover:text-brand-400 rounded-lg hover:bg-white dark:hover:bg-gray-700 transition-colors disabled:opacity-50" title="View">
+          {viewing ? <LuRefreshCw className="w-4 h-4 animate-spin" /> : <LuExternalLink className="w-4 h-4" />}
+        </button>
+        <button onClick={handleDownload} disabled={viewing || downloading} className="p-1.5 text-gray-500 hover:text-brand-500 dark:text-gray-400 dark:hover:text-brand-400 rounded-lg hover:bg-white dark:hover:bg-gray-700 transition-colors disabled:opacity-50" title="Download">
+          {downloading ? <LuRefreshCw className="w-4 h-4 animate-spin" /> : <LuDownload className="w-4 h-4" />}
         </button>
       </div>
     </div>
