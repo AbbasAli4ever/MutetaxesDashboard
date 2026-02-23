@@ -1128,7 +1128,7 @@ function AddPersonDropdown({
 
 // ─── Section: Applicant Information ──────────────────────────────────────────
 
-function ApplicantSection({ data, onSave }: { data: RegistrationDetail["applicant"]; onSave: (d: RegistrationDetail["applicant"]) => Promise<void> }) {
+function ApplicantSection({ data, onSave, canEdit = true }: { data: RegistrationDetail["applicant"]; onSave: (d: RegistrationDetail["applicant"]) => Promise<void>; canEdit?: boolean }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(data);
   const [touched, setTouched] = useState(false);
@@ -1155,7 +1155,7 @@ function ApplicantSection({ data, onSave }: { data: RegistrationDetail["applican
 
   return (
     <SectionCard icon={LuUser} title="Applicant Information" subtitle="Primary contact details"
-      editing={editing}
+      editing={editing} canEdit={canEdit}
       onEdit={() => { setDraft(data); setTouched(false); setSaveError(""); setEditing(true); }}
       onSave={handleSave}
       onCancel={() => setEditing(false)}
@@ -1176,7 +1176,7 @@ function ApplicantSection({ data, onSave }: { data: RegistrationDetail["applican
 
 const BUSINESS_NATURE_OPTIONS = ["E-Commerce", "Consulting", "Services", "Trading", "IT / SaaS", "Import/Export"];
 
-function CompanySection({ data, onSave }: { data: RegistrationDetail["company"]; onSave: (d: RegistrationDetail["company"]) => Promise<void> }) {
+function CompanySection({ data, onSave, canEdit = true }: { data: RegistrationDetail["company"]; onSave: (d: RegistrationDetail["company"]) => Promise<void>; canEdit?: boolean }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(data);
   const [touched, setTouched] = useState(false);
@@ -1215,7 +1215,7 @@ function CompanySection({ data, onSave }: { data: RegistrationDetail["company"];
 
   return (
     <SectionCard icon={LuBuilding2} title="Company Information" subtitle="Incorporation details"
-      editing={editing}
+      editing={editing} canEdit={canEdit}
       onEdit={() => { setDraft(data); setTouched(false); setSaveError(""); setEditing(true); }}
       onSave={handleSave}
       onCancel={() => setEditing(false)}
@@ -1282,10 +1282,11 @@ function CompanySection({ data, onSave }: { data: RegistrationDetail["company"];
 // ─── Section: Share Capital ───────────────────────────────────────────────────
 
 function ShareCapitalSection({
-  data, persons, onSave, onPersonsChange,
+  data, persons, onSave, onPersonsChange, canEdit = true,
 }: {
   data: RegistrationDetail["shareCapital"]; persons: Person[];
   onSave: (d: RegistrationDetail["shareCapital"], p: Person[]) => Promise<void>; onPersonsChange: (p: Person[]) => void;
+  canEdit?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(data);
@@ -1331,7 +1332,7 @@ function ShareCapitalSection({
 
   return (
     <SectionCard icon={LuFileChartPie} title="Share Capital" subtitle="Capital structure & shareholder distribution"
-      editing={editing}
+      editing={editing} canEdit={canEdit}
       onEdit={() => { setDraft(data); setDraftPersons(persons); setSaveError(""); setEditing(true); }}
       onSave={handleSave}
       onCancel={() => setEditing(false)}
@@ -1565,10 +1566,11 @@ function PersonCard({
 
 function ShareholdersSection({
   persons, totalShares, onSave,
-  sharedDraft, onSharedDraftChange,
+  sharedDraft, onSharedDraftChange, canEdit = true,
 }: {
   persons: Person[]; totalShares: number; onSave: (p: Person[]) => Promise<void>;
   sharedDraft: Person[] | null; onSharedDraftChange: (p: Person[]) => void;
+  canEdit?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [touched, setTouched] = useState(false);
@@ -1626,7 +1628,7 @@ function ShareholdersSection({
 
   return (
     <SectionCard icon={LuUsers} title="Shareholders" subtitle="Detailed shareholder information"
-      editing={editing}
+      editing={editing} canEdit={canEdit}
       onEdit={() => { onSharedDraftChange(persons); setTouched(false); setSaveError(""); setEditing(true); }}
       onSave={handleSave}
       onCancel={() => { onSharedDraftChange(persons); setEditing(false); }}
@@ -1659,10 +1661,11 @@ function ShareholdersSection({
 
 function DirectorsSection({
   persons, totalShares, onSave,
-  sharedDraft, onSharedDraftChange,
+  sharedDraft, onSharedDraftChange, canEdit = true,
 }: {
   persons: Person[]; totalShares: number; onSave: (p: Person[]) => Promise<void>;
   sharedDraft: Person[] | null; onSharedDraftChange: (p: Person[]) => void;
+  canEdit?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [touched, setTouched] = useState(false);
@@ -1714,7 +1717,7 @@ function DirectorsSection({
 
   return (
     <SectionCard icon={LuUserCheck} title="Directors" subtitle="Company director information"
-      editing={editing}
+      editing={editing} canEdit={canEdit}
       onEdit={() => { onSharedDraftChange(persons); setTouched(false); setSaveError(""); setEditing(true); }}
       onSave={handleSave}
       onCancel={() => { onSharedDraftChange(persons); setEditing(false); }}
@@ -1758,7 +1761,7 @@ const ADDITIONAL_SERVICE_OPTIONS = [
   "Visa Application Support", "PayPal / Stripe Setup Guidance",
 ];
 
-function ServicesSection({ data, onSave }: { data: RegistrationDetail["services"]; onSave: (d: RegistrationDetail["services"]) => Promise<void> }) {
+function ServicesSection({ data, onSave, canEdit = true }: { data: RegistrationDetail["services"]; onSave: (d: RegistrationDetail["services"]) => Promise<void>; canEdit?: boolean }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(data);
   const [saving, setSaving] = useState(false);
@@ -1795,7 +1798,7 @@ function ServicesSection({ data, onSave }: { data: RegistrationDetail["services"
 
   return (
     <SectionCard icon={LuBriefcase} title="Banking & Additional Services" subtitle="Selected service packages"
-      editing={editing}
+      editing={editing} canEdit={canEdit}
       onEdit={() => { setDraft(data); setSaveError(""); setEditing(true); }}
       onSave={handleSave}
       onCancel={() => setEditing(false)}
@@ -1887,7 +1890,7 @@ function ServicesSection({ data, onSave }: { data: RegistrationDetail["services"
 
 // ─── Section: Billing ─────────────────────────────────────────────────────────
 
-function BillingSection({ data, onSave }: { data: RegistrationDetail["billing"]; onSave: (d: RegistrationDetail["billing"]) => Promise<void> }) {
+function BillingSection({ data, onSave, canEdit = true }: { data: RegistrationDetail["billing"]; onSave: (d: RegistrationDetail["billing"]) => Promise<void>; canEdit?: boolean }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(data);
   const [touched, setTouched] = useState(false);
@@ -1919,7 +1922,7 @@ function BillingSection({ data, onSave }: { data: RegistrationDetail["billing"];
 
   return (
     <SectionCard icon={LuCreditCard} title="Billing Information" subtitle="Invoice and payment details"
-      editing={editing}
+      editing={editing} canEdit={canEdit}
       onEdit={() => { setDraft(data); setTouched(false); setSaveError(""); setEditing(true); }}
       onSave={handleSave}
       onCancel={() => setEditing(false)}
@@ -2194,6 +2197,7 @@ function RegistrationDetailContent({ id }: { id: string }) {
       {/* Sections */}
       <ApplicantSection
         data={reg.applicant}
+        canEdit={canUpdate}
         onSave={async (d) => {
           await patchRegistration({
             applicant: {
@@ -2208,6 +2212,7 @@ function RegistrationDetailContent({ id }: { id: string }) {
       />
       <CompanySection
         data={reg.company}
+        canEdit={canUpdate}
         onSave={async (d) => {
           await patchRegistration({
             company: {
@@ -2227,6 +2232,7 @@ function RegistrationDetailContent({ id }: { id: string }) {
       <ShareCapitalSection
         data={reg.shareCapital}
         persons={reg.persons}
+        canEdit={canUpdate}
         onSave={async (d, p) => {
           await patchRegistration({
             shareCapital: {
@@ -2245,6 +2251,7 @@ function RegistrationDetailContent({ id }: { id: string }) {
       <ShareholdersSection
         persons={reg.persons}
         totalShares={reg.shareCapital.totalShares}
+        canEdit={canUpdate}
         sharedDraft={sharedPersonsDraft}
         onSharedDraftChange={setSharedPersonsDraft}
         onSave={async (p) => {
@@ -2256,6 +2263,7 @@ function RegistrationDetailContent({ id }: { id: string }) {
       <DirectorsSection
         persons={reg.persons}
         totalShares={reg.shareCapital.totalShares}
+        canEdit={canUpdate}
         sharedDraft={sharedPersonsDraft}
         onSharedDraftChange={setSharedPersonsDraft}
         onSave={async (p) => {
@@ -2266,6 +2274,7 @@ function RegistrationDetailContent({ id }: { id: string }) {
       />
       <ServicesSection
         data={reg.services}
+        canEdit={canUpdate}
         onSave={async (d) => {
           await patchRegistration({
             services: {
@@ -2281,6 +2290,7 @@ function RegistrationDetailContent({ id }: { id: string }) {
       />
       <BillingSection
         data={reg.billing}
+        canEdit={canUpdate}
         onSave={async (d) => {
           await patchRegistration({
             billing: {
