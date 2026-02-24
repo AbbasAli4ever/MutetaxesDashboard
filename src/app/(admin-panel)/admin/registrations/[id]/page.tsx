@@ -25,6 +25,7 @@ import {
   LuTriangleAlert,
   LuRefreshCw,
   LuCircleAlert,
+  LuReplace,
 } from "react-icons/lu";
 import PageAccessGuard from "@/components/common/PageAccessGuard";
 import {
@@ -488,12 +489,17 @@ function DocumentRow({ doc }: { doc: DocumentFile }) {
     setDownloading(true);
     try {
       const url = await getSignedUrl(doc.key);
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Download failed");
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url;
+      a.href = objectUrl;
       a.download = doc.fileName;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
     } catch {
       alert("Could not download document. Please try again.");
     } finally {
@@ -524,6 +530,95 @@ function DocumentRow({ doc }: { doc: DocumentFile }) {
   );
 }
 
+const ALLOWED_DOC_MIME = ["application/pdf", "image/jpeg", "image/jpg", "image/png", "image/webp"];
+const MAX_DOC_SIZE = 10 * 1024 * 1024; // 10 MB
+
+function EditableDocumentRow({
+  doc, docType, busy, onReplace,
+}: {
+  doc: DocumentFile; docType: string; busy?: boolean;
+  onReplace: (docType: string, file: File) => void;
+}) {
+  const isImage = doc.mimeType.startsWith("image/");
+  const [viewing, setViewing] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleView() {
+    setViewing(true);
+    try {
+      const url = await getSignedUrl(doc.key);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch {
+      alert("Could not load document. Please try again.");
+    } finally {
+      setViewing(false);
+    }
+  }
+
+  async function handleDownload() {
+    setDownloading(true);
+    try {
+      const url = await getSignedUrl(doc.key);
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Download failed");
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = doc.fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      alert("Could not download document. Please try again.");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!ALLOWED_DOC_MIME.includes(file.type)) { alert("Unsupported file type. Allowed: PDF, JPEG, PNG, WEBP"); return; }
+    if (file.size > MAX_DOC_SIZE) { alert("File size must be under 10 MB"); return; }
+    e.target.value = "";
+    onReplace(docType, file);
+  }
+
+  const isBusy = busy || viewing || downloading;
+
+  return (
+    <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/60 transition-colors">
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="shrink-0 w-8 h-8 flex items-center justify-center rounded-md bg-brand-50 dark:bg-brand-500/10">
+          {isImage ? <LuImage className="w-4 h-4 text-brand-500 dark:text-brand-400" /> : <LuFileText className="w-4 h-4 text-brand-500 dark:text-brand-400" />}
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{doc.fileName}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{doc.mimeType} · {formatBytes(doc.size)}</p>
+        </div>
+      </div>
+      <div className="flex items-center gap-1 shrink-0 ml-3">
+        <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileSelected}
+          accept=".pdf,.jpg,.jpeg,.png,.webp" />
+        <button onClick={handleView} disabled={isBusy}
+          className="p-1.5 text-gray-500 hover:text-brand-500 dark:text-gray-400 dark:hover:text-brand-400 rounded-lg hover:bg-white dark:hover:bg-gray-700 transition-colors disabled:opacity-50" title="View">
+          {viewing ? <LuRefreshCw className="w-4 h-4 animate-spin" /> : <LuExternalLink className="w-4 h-4" />}
+        </button>
+        <button onClick={handleDownload} disabled={isBusy}
+          className="p-1.5 text-gray-500 hover:text-brand-500 dark:text-gray-400 dark:hover:text-brand-400 rounded-lg hover:bg-white dark:hover:bg-gray-700 transition-colors disabled:opacity-50" title="Download">
+          {downloading ? <LuRefreshCw className="w-4 h-4 animate-spin" /> : <LuDownload className="w-4 h-4" />}
+        </button>
+        <button onClick={() => fileInputRef.current?.click()} disabled={isBusy}
+          className="p-1.5 text-gray-500 hover:text-brand-500 dark:text-gray-400 dark:hover:text-brand-400 rounded-lg hover:bg-white dark:hover:bg-gray-700 transition-colors disabled:opacity-50" title="Replace document">
+          {busy ? <LuRefreshCw className="w-4 h-4 animate-spin" /> : <LuReplace className="w-4 h-4" />}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 // ─── Allocation Progress Bar ─────────────────────────────────────────────────
 
@@ -1056,7 +1151,7 @@ function AddPersonDropdown({
                     <div>
                       <div className="flex items-center justify-between mb-1.5">
                         <label className="text-xs font-medium text-gray-700 dark:text-gray-300">
-                          New Shareholder's Shares <span className="text-error-500">*</span>
+                          New Shareholder&apos;s Shares <span className="text-error-500">*</span>
                         </label>
                         <span className={`text-xs font-medium px-2 py-0.5 rounded-md ${availableForNew > 0 ? "bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400" : "bg-error-50 dark:bg-error-500/10 text-error-600 dark:text-error-400"}`}>
                           {availableForNew.toLocaleString()} available
@@ -1452,9 +1547,15 @@ function validatePerson(person: Person) {
 
 function PersonCard({
   person, index, editing, totalShares, onPersonChange, onRemove, canRemove, showErrors = false,
+  onDocumentReplace, busyDocs = new Set(), liveDocs,
 }: {
   person: Person; index: number; editing: boolean; totalShares: number;
   onPersonChange: (p: Person) => void; onRemove: () => void; canRemove: boolean; showErrors?: boolean;
+  onDocumentReplace?: (personId: string, docType: string, file: File) => void;
+  /** Set of docType keys currently being uploaded/replaced */
+  busyDocs?: Set<string>;
+  /** Live documents from reg.persons — always up-to-date regardless of draft state */
+  liveDocs?: Person["documents"];
 }) {
   const set = (k: keyof Person) => (v: string) => onPersonChange({ ...person, [k]: v });
   const setAddr = (k: keyof Person["residentialAddress"]) => (v: string) =>
@@ -1467,7 +1568,9 @@ function PersonCard({
     passport: "Passport / ID", selfie: "Passport Holding Selfie", addressProof: "Proof of Address",
     certificate_of_incorporation: "Certificate of Incorporation", business_license: "Business License", others: "Other Documents",
   };
-  const docs = Object.entries(person.documents).filter(([, v]) => v !== null).map(([k, v]) => ({ label: docLabels[k] || k, doc: v as DocumentFile }));
+  // Always use liveDocs when available so document state is never overwritten by draft edits
+  const docsSource = liveDocs ?? person.documents;
+  const docs = Object.entries(docsSource).filter(([, v]) => v !== null).map(([k, v]) => ({ key: k, label: docLabels[k] || k, doc: v as DocumentFile }));
 
   return (
     <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-visible">
@@ -1544,22 +1647,63 @@ function PersonCard({
           </div>
         </div>
 
-        {docs.length > 0 && (
+        {editing && onDocumentReplace ? (
+          docs.length > 0 ? (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Documents</p>
+              <div className="space-y-2">
+                {docs.map(({ key, label, doc }) => (
+                  <div key={key}>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</p>
+                    <EditableDocumentRow
+                      doc={doc} docType={key}
+                      busy={busyDocs?.has(key)}
+                      onReplace={(dt, file) => onDocumentReplace(person.id, dt, file)}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null
+        ) : docs.length > 0 ? (
           <div>
             <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Uploaded Documents</p>
             <div className="space-y-2">
-              {docs.map(({ label, doc }) => (
-                <div key={label}>
+              {docs.map(({ key, label, doc }) => (
+                <div key={key}>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</p>
                   <DocumentRow doc={doc} />
                 </div>
               ))}
             </div>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
+}
+
+// ─── Shared doc-state helpers used by both Shareholders & Directors sections ──
+
+type DocStateMap = Record<string, Set<string>>; // personId → Set<docType>
+
+function useDocState() {
+  // busy: docs currently being uploaded/replaced
+  const [busy, setBusy] = useState<DocStateMap>({});
+
+  const markBusy = (personId: string, docType: string) =>
+    setBusy((prev) => ({ ...prev, [personId]: new Set([...(prev[personId] ?? []), docType]) }));
+
+  const clearBusy = (personId: string, docType: string) =>
+    setBusy((prev) => {
+      const next = new Set(prev[personId] ?? []);
+      next.delete(docType);
+      return { ...prev, [personId]: next };
+    });
+
+  const reset = () => { setBusy({}); };
+
+  return { busy, markBusy, clearBusy, reset };
 }
 
 // ─── Section: Shareholders ────────────────────────────────────────────────────
@@ -1567,17 +1711,19 @@ function PersonCard({
 function ShareholdersSection({
   persons, totalShares, onSave,
   sharedDraft, onSharedDraftChange, canEdit = true,
+  onDocumentReplace,
 }: {
   persons: Person[]; totalShares: number; onSave: (p: Person[]) => Promise<void>;
   sharedDraft: Person[] | null; onSharedDraftChange: (p: Person[]) => void;
   canEdit?: boolean;
+  onDocumentReplace?: (personId: string, docType: string, file: File) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [touched, setTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const docState = useDocState();
 
-  // Use shared draft while editing so directors section stays in sync
   const draft = sharedDraft ?? persons;
   const setDraft = (updater: Person[] | ((prev: Person[]) => Person[])) => {
     const next = typeof updater === "function" ? updater(sharedDraft ?? persons) : updater;
@@ -1589,7 +1735,6 @@ function ShareholdersSection({
   const displayShareholders = displayPersons.filter((p) => p.roles.includes("shareholder"));
   const allPersonsValid = draftShareholders.every((p) => Object.values(validatePerson(p)).every((e) => !e));
 
-  // Candidates = directors in shared draft that aren't already shareholders
   const directorCandidates = draft.filter((p) => p.roles.includes("director") && !p.roles.includes("shareholder"));
 
   const updatePerson = (id: string, updated: Person) => setDraft((prev) => prev.map((p) => (p.id === id ? updated : p)));
@@ -1617,11 +1762,23 @@ function ShareholdersSection({
     });
   };
 
+  const handleDocReplace = async (personId: string, docType: string, file: File) => {
+    if (!onDocumentReplace) return;
+    docState.markBusy(personId, docType);
+    try {
+      await onDocumentReplace(personId, docType, file);
+    } finally {
+      docState.clearBusy(personId, docType);
+    }
+  };
+
+  const saveDisabled = editing && touched && !allPersonsValid;
+
   const handleSave = async () => {
     setTouched(true);
     if (!allPersonsValid) return;
     setSaving(true); setSaveError("");
-    try { await onSave(draft); setEditing(false); }
+    try { await onSave(draft); setEditing(false); docState.reset(); }
     catch (err) { setSaveError(err instanceof Error ? err.message : "Save failed"); }
     finally { setSaving(false); }
   };
@@ -1629,10 +1786,10 @@ function ShareholdersSection({
   return (
     <SectionCard icon={LuUsers} title="Shareholders" subtitle="Detailed shareholder information"
       editing={editing} canEdit={canEdit}
-      onEdit={() => { onSharedDraftChange(persons); setTouched(false); setSaveError(""); setEditing(true); }}
+      onEdit={() => { onSharedDraftChange(persons); setTouched(false); setSaveError(""); docState.reset(); setEditing(true); }}
       onSave={handleSave}
-      onCancel={() => { onSharedDraftChange(persons); setEditing(false); }}
-      saveDisabled={editing && touched && !allPersonsValid}
+      onCancel={() => { onSharedDraftChange(persons); docState.reset(); setEditing(false); }}
+      saveDisabled={saveDisabled}
       saving={saving} saveError={saveError}
       extraHeader={editing ? (
         <AddPersonDropdown
@@ -1645,10 +1802,14 @@ function ShareholdersSection({
       <div className="space-y-4">
         {displayShareholders.map((p, i) => {
           const draftPerson = draft.find((d) => d.id === p.id) || p;
+          const livePerson = persons.find((lp) => lp.id === p.id);
           return (
             <PersonCard key={p.id} person={editing ? draftPerson : p} index={i} editing={editing} totalShares={totalShares}
               onPersonChange={(updated) => { setTouched(true); updatePerson(p.id, updated); }}
-              onRemove={() => removeShareholder(p.id)} canRemove={draftShareholders.length > 1} showErrors={touched} />
+              onRemove={() => removeShareholder(p.id)} canRemove={draftShareholders.length > 1} showErrors={touched}
+              onDocumentReplace={handleDocReplace}
+              busyDocs={docState.busy[p.id]}
+              liveDocs={livePerson?.documents} />
           );
         })}
         {displayShareholders.length === 0 && <p className="text-sm text-gray-400 dark:text-gray-600 italic">No shareholders found.</p>}
@@ -1662,17 +1823,19 @@ function ShareholdersSection({
 function DirectorsSection({
   persons, totalShares, onSave,
   sharedDraft, onSharedDraftChange, canEdit = true,
+  onDocumentReplace,
 }: {
   persons: Person[]; totalShares: number; onSave: (p: Person[]) => Promise<void>;
   sharedDraft: Person[] | null; onSharedDraftChange: (p: Person[]) => void;
   canEdit?: boolean;
+  onDocumentReplace?: (personId: string, docType: string, file: File) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [touched, setTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const docState = useDocState();
 
-  // Use shared draft while editing so shareholders section stays in sync
   const draft = sharedDraft ?? persons;
   const setDraft = (updater: Person[] | ((prev: Person[]) => Person[])) => {
     const next = typeof updater === "function" ? updater(sharedDraft ?? persons) : updater;
@@ -1684,7 +1847,6 @@ function DirectorsSection({
   const displayDirectors = displayPersons.filter((p) => p.roles.includes("director"));
   const allPersonsValid = draftDirectors.every((p) => Object.values(validatePerson(p)).every((e) => !e));
 
-  // Candidates = shareholders in shared draft that aren't already directors
   const shareholderCandidates = draft.filter((p) => p.roles.includes("shareholder") && !p.roles.includes("director"));
 
   const updatePerson = (id: string, updated: Person) => setDraft((prev) => prev.map((p) => (p.id === id ? updated : p)));
@@ -1693,7 +1855,6 @@ function DirectorsSection({
     setDraft((prev) => prev.map((p) => p.id === personId && !p.roles.includes("director") ? { ...p, roles: [...p.roles, "director"] } : p));
   const addNewDirectorWithAdjustments = (person: Person, adjustments: { id: string; shares: number }[]) => {
     setDraft((prev) => {
-      // If the new person is also a shareholder (adjustments present), apply share redistribution
       if (adjustments.length > 0) {
         let updated = prev.map((p) => {
           const adj = adjustments.find((a) => a.id === p.id);
@@ -1706,11 +1867,23 @@ function DirectorsSection({
     });
   };
 
+  const handleDocReplace = async (personId: string, docType: string, file: File) => {
+    if (!onDocumentReplace) return;
+    docState.markBusy(personId, docType);
+    try {
+      await onDocumentReplace(personId, docType, file);
+    } finally {
+      docState.clearBusy(personId, docType);
+    }
+  };
+
+  const saveDisabled = editing && touched && !allPersonsValid;
+
   const handleSave = async () => {
     setTouched(true);
     if (!allPersonsValid) return;
     setSaving(true); setSaveError("");
-    try { await onSave(draft); setEditing(false); }
+    try { await onSave(draft); setEditing(false); docState.reset(); }
     catch (err) { setSaveError(err instanceof Error ? err.message : "Save failed"); }
     finally { setSaving(false); }
   };
@@ -1718,10 +1891,10 @@ function DirectorsSection({
   return (
     <SectionCard icon={LuUserCheck} title="Directors" subtitle="Company director information"
       editing={editing} canEdit={canEdit}
-      onEdit={() => { onSharedDraftChange(persons); setTouched(false); setSaveError(""); setEditing(true); }}
+      onEdit={() => { onSharedDraftChange(persons); setTouched(false); setSaveError(""); docState.reset(); setEditing(true); }}
       onSave={handleSave}
-      onCancel={() => { onSharedDraftChange(persons); setEditing(false); }}
-      saveDisabled={editing && touched && !allPersonsValid}
+      onCancel={() => { onSharedDraftChange(persons); docState.reset(); setEditing(false); }}
+      saveDisabled={saveDisabled}
       saving={saving} saveError={saveError}
       extraHeader={editing ? (
         <AddPersonDropdown
@@ -1734,10 +1907,14 @@ function DirectorsSection({
       <div className="space-y-4">
         {displayDirectors.map((p, i) => {
           const draftPerson = draft.find((d) => d.id === p.id) || p;
+          const livePerson = persons.find((lp) => lp.id === p.id);
           return (
             <PersonCard key={p.id} person={editing ? draftPerson : p} index={i} editing={editing} totalShares={totalShares}
               onPersonChange={(updated) => { setTouched(true); updatePerson(p.id, updated); }}
-              onRemove={() => removeDirector(p.id)} canRemove={draftDirectors.length > 1} showErrors={touched} />
+              onRemove={() => removeDirector(p.id)} canRemove={draftDirectors.length > 1} showErrors={touched}
+              onDocumentReplace={handleDocReplace}
+              busyDocs={docState.busy[p.id]}
+              liveDocs={livePerson?.documents} />
           );
         })}
         {displayDirectors.length === 0 && <p className="text-sm text-gray-400 dark:text-gray-600 italic">No directors found.</p>}
@@ -2034,7 +2211,15 @@ function RegistrationDetailContent({ id }: { id: string }) {
   const { can } = useModulePermission();
   const canUpdate = can("UPDATE");
 
-  const [reg, setReg] = useState<RegistrationDetail | null>(null);
+  const [reg, setRegState] = useState<RegistrationDetail | null>(null);
+  const regRef = useRef<RegistrationDetail | null>(null);
+  const setReg = (val: RegistrationDetail | null | ((prev: RegistrationDetail | null) => RegistrationDetail | null)) => {
+    setRegState((prev) => {
+      const next = typeof val === "function" ? val(prev) : val;
+      regRef.current = next;
+      return next;
+    });
+  };
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [editingStatus, setEditingStatus] = useState(false);
@@ -2121,6 +2306,52 @@ function RegistrationDetailContent({ id }: { id: string }) {
 
   // Shared draft for Shareholders + Directors sections so they see each other's changes while editing
   const [sharedPersonsDraft, setSharedPersonsDraft] = useState<Person[] | null>(null);
+
+  // ── Document operations (delete / replace / upload) ────────────────────────
+  const updatePersonDocument = (personId: string, docType: string, doc: DocumentFile | null) => {
+    const updater = (persons: Person[]) =>
+      persons.map((p) =>
+        p.id === personId
+          ? { ...p, documents: { ...p.documents, [docType]: doc } }
+          : p
+      );
+    setReg((r) => r ? { ...r, persons: updater(r.persons) } : r);
+    setSharedPersonsDraft((prev) => prev ? updater(prev) : prev);
+  };
+
+  const handleDocumentReplace = async (personId: string, docType: string, file: File): Promise<void> => {
+    // Step 1: get presigned upload URL from backend
+    const presignRes = await authFetch(`${API_BASE_URL}/api/v1/uploads/presign`, {
+      method: "POST",
+      body: JSON.stringify({
+        documentType: docType,
+        fileName: file.name,
+        mimeType: file.type,
+        sizeBytes: file.size,
+      }),
+    });
+    if (!presignRes.ok) {
+      const err = await presignRes.json().catch(() => ({}));
+      throw new Error(err?.error ?? "Failed to get upload URL");
+    }
+    const { uploadUrl, key, publicUrl } = await presignRes.json();
+
+    // Step 2: PUT file directly to S3
+    const uploadRes = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": file.type },
+      body: file,
+    });
+    if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status}`);
+
+    updatePersonDocument(personId, docType, {
+      key,
+      url: publicUrl,
+      fileName: file.name,
+      mimeType: file.type,
+      size: file.size,
+    });
+  };
 
   if (loading) return <LoadingSkeleton />;
 
@@ -2255,10 +2486,16 @@ function RegistrationDetailContent({ id }: { id: string }) {
         sharedDraft={sharedPersonsDraft}
         onSharedDraftChange={setSharedPersonsDraft}
         onSave={async (p) => {
-          await patchRegistration({ persons: p.map(personToApiShape) });
-          updatePersons(p);
+          // Merge latest documents from reg.persons (updated by handleDocumentReplace) into the draft
+          const merged = p.map((person) => {
+            const live = regRef.current?.persons.find((r) => r.id === person.id);
+            return live ? { ...person, documents: live.documents } : person;
+          });
+          await patchRegistration({ persons: merged.map(personToApiShape) });
+          updatePersons(merged);
           setSharedPersonsDraft(null);
         }}
+        onDocumentReplace={handleDocumentReplace}
       />
       <DirectorsSection
         persons={reg.persons}
@@ -2267,10 +2504,15 @@ function RegistrationDetailContent({ id }: { id: string }) {
         sharedDraft={sharedPersonsDraft}
         onSharedDraftChange={setSharedPersonsDraft}
         onSave={async (p) => {
-          await patchRegistration({ persons: p.map(personToApiShape) });
-          updatePersons(p);
+          const merged = p.map((person) => {
+            const live = regRef.current?.persons.find((r) => r.id === person.id);
+            return live ? { ...person, documents: live.documents } : person;
+          });
+          await patchRegistration({ persons: merged.map(personToApiShape) });
+          updatePersons(merged);
           setSharedPersonsDraft(null);
         }}
+        onDocumentReplace={handleDocumentReplace}
       />
       <ServicesSection
         data={reg.services}

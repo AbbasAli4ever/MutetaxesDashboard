@@ -179,7 +179,10 @@ export const authFetch = async (
 
   const headers = new Headers(options.headers);
   headers.set("Authorization", `Bearer ${token}`);
-  headers.set("Content-Type", "application/json");
+  // Don't set Content-Type for FormData — the browser sets the multipart boundary automatically
+  if (!(options.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json");
+  }
 
   const response = await fetch(url, {
     ...options,
