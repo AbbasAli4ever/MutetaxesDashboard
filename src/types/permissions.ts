@@ -5,6 +5,7 @@ export type PermissionAction = 'CREATE' | 'READ' | 'UPDATE' | 'DELETE';
 export type PermissionModule =
   | 'REGISTRATIONS'
   | 'USER_MANAGEMENT'
+  | 'CUSTOMER_MANAGEMENT'
   | 'PAYMENTS'
   | 'COMPLIANCE'
   | 'REPORTS'

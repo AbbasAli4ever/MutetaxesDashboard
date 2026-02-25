@@ -30,6 +30,7 @@ import {
   LuChartBar,
   LuTicket,
   LuSettings,
+  LuUserCog,
 } from "react-icons/lu";
 import SidebarWidget from "./SidebarWidget";
 import { useRole } from "@/context/RoleContext";
@@ -100,6 +101,11 @@ const adminNavItems: NavItem[] = [
     name: "User Management",
     path: "/admin/user-management",
     permissionModule: "USER_MANAGEMENT",
+  },
+  {
+    icon: <LuUserCog className="w-6 h-6" />,
+    name: "Customer Management",
+    path: "/admin/customer-management",
   },
   {
     icon: <LuDollarSign className="w-6 h-6" />,

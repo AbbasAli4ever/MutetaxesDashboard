@@ -26,6 +26,14 @@ import {
   LuRefreshCw,
   LuCircleAlert,
   LuReplace,
+  LuLock,
+  LuEye,
+  LuEyeOff,
+  LuUpload,
+  LuMapPin,
+  LuPhone,
+  LuMail,
+  LuChevronRight,
 } from "react-icons/lu";
 import PageAccessGuard from "@/components/common/PageAccessGuard";
 import {
@@ -2204,6 +2212,662 @@ function LoadingSkeleton() {
   );
 }
 
+// ─── Completion Flow: Modal 1 — Create Customer Login ────────────────────────
+
+interface CreateLoginForm {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+}
+
+function CreateLoginModal({
+  reg,
+  onNext,
+  onClose,
+}: {
+  reg: RegistrationDetail;
+  onNext: (form: CreateLoginForm) => void;
+  onClose: () => void;
+}) {
+  const [form, setForm] = useState<CreateLoginForm>({
+    firstName: reg.applicant.firstName,
+    lastName: reg.applicant.lastName,
+    email: reg.applicant.email,
+    password: "",
+    confirmPassword: "",
+  });
+  const [touched, setTouched] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  const errors = {
+    firstName: !form.firstName.trim() ? "Required" : "",
+    lastName: !form.lastName.trim() ? "Required" : "",
+    email: !form.email.trim() ? "Required" : !isValidEmail(form.email) ? "Invalid email" : "",
+    password: !form.password ? "Required" : form.password.length < 8 ? "Minimum 8 characters" : "",
+    confirmPassword: !form.confirmPassword ? "Required" : form.confirmPassword !== form.password ? "Passwords do not match" : "",
+  };
+  const valid = Object.values(errors).every((e) => !e);
+
+  const set = (k: keyof CreateLoginForm) => (v: string) => setForm((p) => ({ ...p, [k]: v }));
+
+  function handleNext() {
+    setTouched(true);
+    if (!valid) return;
+    onNext(form);
+  }
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+
+      {/* Modal */}
+      <div className="relative w-full max-w-lg bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-brand-50 dark:bg-brand-500/10">
+              <LuUser className="w-[18px] h-[18px] text-brand-600 dark:text-brand-400" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Create Customer Login</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Step 1 of 2 — Set up portal access for the customer</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
+            <LuX className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Step indicator */}
+        <div className="flex items-center gap-2 px-6 pt-4">
+          <div className="flex items-center gap-1.5">
+            <div className="w-6 h-6 rounded-full bg-brand-500 text-white text-xs font-bold flex items-center justify-center">1</div>
+            <span className="text-xs font-medium text-brand-600 dark:text-brand-400">Customer Login</span>
+          </div>
+          <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+          <div className="flex items-center gap-1.5">
+            <div className="w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 text-xs font-bold flex items-center justify-center">2</div>
+            <span className="text-xs text-gray-500 dark:text-gray-400">Company Setup</span>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="px-6 py-5 space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            {/* First Name */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                First Name <span className="text-error-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={form.firstName}
+                onChange={(e) => set("firstName")(e.target.value)}
+                className={touched && errors.firstName ? inputErrCls : inputCls}
+                placeholder="First name"
+              />
+              {touched && errors.firstName && <p className="mt-1 text-xs text-error-500">{errors.firstName}</p>}
+            </div>
+            {/* Last Name */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                Last Name <span className="text-error-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={form.lastName}
+                onChange={(e) => set("lastName")(e.target.value)}
+                className={touched && errors.lastName ? inputErrCls : inputCls}
+                placeholder="Last name"
+              />
+              {touched && errors.lastName && <p className="mt-1 text-xs text-error-500">{errors.lastName}</p>}
+            </div>
+          </div>
+
+          {/* Email */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+              Email Address <span className="text-error-500">*</span>
+            </label>
+            <div className="relative">
+              <LuMail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="email"
+                value={form.email}
+                onChange={(e) => set("email")(e.target.value)}
+                className={(touched && errors.email ? inputErrCls : inputCls) + " pl-9"}
+                placeholder="email@example.com"
+              />
+            </div>
+            {touched && errors.email && <p className="mt-1 text-xs text-error-500">{errors.email}</p>}
+          </div>
+
+          {/* Password */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+              Password <span className="text-error-500">*</span>
+            </label>
+            <div className="relative">
+              <LuLock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type={showPassword ? "text" : "password"}
+                value={form.password}
+                onChange={(e) => set("password")(e.target.value)}
+                className={(touched && errors.password ? inputErrCls : inputCls) + " pl-9 pr-9"}
+                placeholder="Minimum 8 characters"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((s) => !s)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                {showPassword ? <LuEyeOff className="w-4 h-4" /> : <LuEye className="w-4 h-4" />}
+              </button>
+            </div>
+            {touched && errors.password && <p className="mt-1 text-xs text-error-500">{errors.password}</p>}
+          </div>
+
+          {/* Confirm Password */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+              Confirm Password <span className="text-error-500">*</span>
+            </label>
+            <div className="relative">
+              <LuLock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type={showConfirm ? "text" : "password"}
+                value={form.confirmPassword}
+                onChange={(e) => set("confirmPassword")(e.target.value)}
+                className={(touched && errors.confirmPassword ? inputErrCls : inputCls) + " pl-9 pr-9"}
+                placeholder="Re-enter password"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirm((s) => !s)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                {showConfirm ? <LuEyeOff className="w-4 h-4" /> : <LuEye className="w-4 h-4" />}
+              </button>
+            </div>
+            {touched && errors.confirmPassword && <p className="mt-1 text-xs text-error-500">{errors.confirmPassword}</p>}
+          </div>
+
+          <p className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2 border border-gray-200 dark:border-gray-700">
+            The customer will use these credentials to log in to the portal. First name, last name, and email are pre-filled from the registration request.
+          </p>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleNext}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-500 hover:bg-brand-600 rounded-lg transition-colors"
+          >
+            Next: Company Setup <LuChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Completion Flow: Modal 2 — Company Setup & Documents ────────────────────
+
+interface CompanyDocFile {
+  file: File;
+  preview: string;
+}
+
+interface CompanySetupForm {
+  companyName: string;
+  businessNature: string;
+  businessEmail: string;
+  phoneNumber: string;
+  registeredOfficeAddress: string;
+  directors: string;
+  shareholders: string;
+  // Documents
+  certificateOfIncorporation: CompanyDocFile | null;
+  businessRegistration: CompanyDocFile | null;
+  articlesOfAssociation: CompanyDocFile | null;
+  annualReturn: CompanyDocFile | null;
+  boardResolution: CompanyDocFile | null;
+  otherDocuments: CompanyDocFile | null;
+}
+
+const COMP_DOC_MIME = ["application/pdf", "image/jpeg", "image/jpg", "image/png", "image/webp"];
+const COMP_DOC_MAX = 10 * 1024 * 1024;
+
+function CompanyDocUploadField({
+  label,
+  description,
+  value,
+  onChange,
+}: {
+  label: string;
+  description?: string;
+  value: CompanyDocFile | null;
+  onChange: (v: CompanyDocFile | null) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!COMP_DOC_MIME.includes(file.type)) {
+      alert("Unsupported file type. Allowed: PDF, JPEG, PNG, WEBP");
+      return;
+    }
+    if (file.size > COMP_DOC_MAX) {
+      alert("File size must be under 10 MB");
+      return;
+    }
+    e.target.value = "";
+    const preview = file.type.startsWith("image/") ? URL.createObjectURL(file) : "";
+    onChange({ file, preview });
+  }
+
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">{label}</label>
+      {description && <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">{description}</p>}
+      <input ref={inputRef} type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png,.webp" onChange={handleFile} />
+      {value ? (
+        <div className="flex items-center justify-between p-3 bg-brand-50 dark:bg-brand-500/10 border border-brand-200 dark:border-brand-500/30 rounded-lg">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 flex items-center justify-center rounded-md bg-brand-100 dark:bg-brand-500/20 shrink-0">
+              {value.file.type.startsWith("image/") ? (
+                <LuImage className="w-4 h-4 text-brand-600 dark:text-brand-400" />
+              ) : (
+                <LuFileText className="w-4 h-4 text-brand-600 dark:text-brand-400" />
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-gray-900 dark:text-white truncate">{value.file.name}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{formatBytes(value.file.size)}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1 shrink-0 ml-2">
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              className="p-1.5 text-brand-500 hover:text-brand-600 dark:text-brand-400 hover:bg-white dark:hover:bg-gray-700 rounded-lg transition-colors"
+              title="Replace"
+            >
+              <LuReplace className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onChange(null)}
+              className="p-1.5 text-error-500 hover:text-error-600 hover:bg-white dark:hover:bg-gray-700 rounded-lg transition-colors"
+              title="Remove"
+            >
+              <LuTrash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          className="w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg hover:border-brand-400 dark:hover:border-brand-500 hover:bg-brand-50 dark:hover:bg-brand-500/5 text-gray-500 dark:text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 transition-all text-xs font-medium"
+        >
+          <LuUpload className="w-4 h-4" />
+          Upload document
+        </button>
+      )}
+    </div>
+  );
+}
+
+function CompanySetupModal({
+  reg,
+  loginForm,
+  onConfirm,
+  onBack,
+  onClose,
+  submitting,
+}: {
+  reg: RegistrationDetail;
+  loginForm: CreateLoginForm;
+  onConfirm: (form: CompanySetupForm) => void;
+  onBack: () => void;
+  onClose: () => void;
+  submitting: boolean;
+}) {
+  // Pre-fill from registration
+  const directors = reg.persons
+    .filter((p) => p.roles.includes("director"))
+    .map((p) => p.fullName || p.companyName)
+    .filter(Boolean)
+    .join(", ");
+
+  const shareholders = reg.persons
+    .filter((p) => p.roles.includes("shareholder"))
+    .map((p) => {
+      const name = p.fullName || p.companyName;
+      const pct = p.shareholding.percentage;
+      return pct > 0 ? `${name} (${pct}%)` : name;
+    })
+    .filter(Boolean)
+    .join(", ");
+
+  const [form, setForm] = useState<CompanySetupForm>({
+    companyName: reg.company.proposedCompanyName,
+    businessNature: reg.company.natureOfBusiness.join(", "),
+    businessEmail: reg.applicant.email,
+    phoneNumber: reg.applicant.phone,
+    registeredOfficeAddress: [
+      reg.billing.address.street,
+      reg.billing.address.city,
+      reg.billing.address.state,
+      reg.billing.address.postalCode,
+      reg.billing.address.country,
+    ].filter(Boolean).join(", "),
+    directors,
+    shareholders,
+    certificateOfIncorporation: null,
+    businessRegistration: null,
+    articlesOfAssociation: null,
+    annualReturn: null,
+    boardResolution: null,
+    otherDocuments: null,
+  });
+
+  const [touched, setTouched] = useState(false);
+
+  const errors = {
+    companyName: !form.companyName.trim() ? "Required" : "",
+    businessNature: !form.businessNature.trim() ? "Required" : "",
+    businessEmail: !form.businessEmail.trim() ? "Required" : !isValidEmail(form.businessEmail) ? "Invalid email" : "",
+    phoneNumber: !form.phoneNumber.trim() ? "Required" : "",
+    registeredOfficeAddress: !form.registeredOfficeAddress.trim() ? "Required" : "",
+    directors: !form.directors.trim() ? "Required" : "",
+    shareholders: !form.shareholders.trim() ? "Required" : "",
+  };
+  const valid = Object.values(errors).every((e) => !e);
+
+  const set = (k: keyof CompanySetupForm) => (v: string | CompanyDocFile | null) =>
+    setForm((p) => ({ ...p, [k]: v }));
+
+  function handleConfirm() {
+    setTouched(true);
+    if (!valid) return;
+    onConfirm(form);
+  }
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+
+      {/* Modal */}
+      <div className="relative w-full max-w-2xl bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden flex flex-col max-h-[90vh]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-brand-50 dark:bg-brand-500/10">
+              <LuBuilding2 className="w-[18px] h-[18px] text-brand-600 dark:text-brand-400" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Company Setup</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Step 2 of 2 — Review company info and upload documents</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
+            <LuX className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Step indicator */}
+        <div className="flex items-center gap-2 px-6 pt-4 shrink-0">
+          <div className="flex items-center gap-1.5">
+            <div className="w-6 h-6 rounded-full bg-success-500 text-white text-xs font-bold flex items-center justify-center">
+              <LuCheck className="w-3.5 h-3.5" />
+            </div>
+            <span className="text-xs text-success-600 dark:text-success-400">Customer Login</span>
+          </div>
+          <div className="flex-1 h-px bg-brand-400" />
+          <div className="flex items-center gap-1.5">
+            <div className="w-6 h-6 rounded-full bg-brand-500 text-white text-xs font-bold flex items-center justify-center">2</div>
+            <span className="text-xs font-medium text-brand-600 dark:text-brand-400">Company Setup</span>
+          </div>
+        </div>
+
+        {/* Scrollable Body */}
+        <div className="overflow-y-auto flex-1 px-6 py-5 space-y-6">
+          {/* Company Information */}
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-6 h-6 rounded-md bg-brand-50 dark:bg-brand-500/10 flex items-center justify-center">
+                <LuBuilding2 className="w-3.5 h-3.5 text-brand-500 dark:text-brand-400" />
+              </div>
+              <h4 className="text-sm font-semibold text-gray-900 dark:text-white">Company Information</h4>
+              <span className="text-xs text-gray-400 dark:text-gray-500 ml-1">— edit if needed</span>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
+              {/* Company Name */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                  Company Name <span className="text-error-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={form.companyName}
+                  onChange={(e) => set("companyName")(e.target.value)}
+                  className={touched && errors.companyName ? inputErrCls : inputCls}
+                />
+                {touched && errors.companyName && <p className="mt-1 text-xs text-error-500">{errors.companyName}</p>}
+              </div>
+
+              {/* Business Nature */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                  Nature of Business <span className="text-error-500">*</span>
+                </label>
+                <textarea
+                  value={form.businessNature}
+                  onChange={(e) => set("businessNature")(e.target.value)}
+                  rows={2}
+                  className={(touched && errors.businessNature ? inputErrCls : inputCls) + " resize-none"}
+                />
+                {touched && errors.businessNature && <p className="mt-1 text-xs text-error-500">{errors.businessNature}</p>}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                {/* Business Email */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                    Business Email <span className="text-error-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <LuMail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="email"
+                      value={form.businessEmail}
+                      onChange={(e) => set("businessEmail")(e.target.value)}
+                      className={(touched && errors.businessEmail ? inputErrCls : inputCls) + " pl-9"}
+                    />
+                  </div>
+                  {touched && errors.businessEmail && <p className="mt-1 text-xs text-error-500">{errors.businessEmail}</p>}
+                </div>
+
+                {/* Phone Number */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                    Phone Number <span className="text-error-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <LuPhone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="tel"
+                      value={form.phoneNumber}
+                      onChange={(e) => set("phoneNumber")(e.target.value)}
+                      className={(touched && errors.phoneNumber ? inputErrCls : inputCls) + " pl-9"}
+                    />
+                  </div>
+                  {touched && errors.phoneNumber && <p className="mt-1 text-xs text-error-500">{errors.phoneNumber}</p>}
+                </div>
+              </div>
+
+              {/* Registered Office Address */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                  Registered Office Address <span className="text-error-500">*</span>
+                </label>
+                <div className="relative">
+                  <LuMapPin className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+                  <textarea
+                    value={form.registeredOfficeAddress}
+                    onChange={(e) => set("registeredOfficeAddress")(e.target.value)}
+                    rows={2}
+                    className={(touched && errors.registeredOfficeAddress ? inputErrCls : inputCls) + " resize-none pl-9"}
+                  />
+                </div>
+                {touched && errors.registeredOfficeAddress && <p className="mt-1 text-xs text-error-500">{errors.registeredOfficeAddress}</p>}
+              </div>
+
+              {/* Directors */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                  Directors <span className="text-error-500">*</span>
+                </label>
+                <textarea
+                  value={form.directors}
+                  onChange={(e) => set("directors")(e.target.value)}
+                  rows={2}
+                  placeholder="e.g. John Smith, Jane Doe"
+                  className={(touched && errors.directors ? inputErrCls : inputCls) + " resize-none"}
+                />
+                {touched && errors.directors && <p className="mt-1 text-xs text-error-500">{errors.directors}</p>}
+              </div>
+
+              {/* Shareholders */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                  Shareholders with Shareholding % <span className="text-error-500">*</span>
+                </label>
+                <textarea
+                  value={form.shareholders}
+                  onChange={(e) => set("shareholders")(e.target.value)}
+                  rows={2}
+                  placeholder="e.g. John Smith (60%), Jane Doe (40%)"
+                  className={(touched && errors.shareholders ? inputErrCls : inputCls) + " resize-none"}
+                />
+                {touched && errors.shareholders && <p className="mt-1 text-xs text-error-500">{errors.shareholders}</p>}
+              </div>
+            </div>
+          </div>
+
+          {/* Company Documents */}
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-6 h-6 rounded-md bg-brand-50 dark:bg-brand-500/10 flex items-center justify-center">
+                <LuFileText className="w-3.5 h-3.5 text-brand-500 dark:text-brand-400" />
+              </div>
+              <h4 className="text-sm font-semibold text-gray-900 dark:text-white">Company Documents</h4>
+              <span className="text-xs text-gray-400 dark:text-gray-500 ml-1">— upload company files (optional)</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <CompanyDocUploadField
+                label="Certificate of Incorporation"
+                description="Official certificate issued by the government"
+                value={form.certificateOfIncorporation}
+                onChange={(v) => set("certificateOfIncorporation")(v as CompanyDocFile | null)}
+              />
+              <CompanyDocUploadField
+                label="Business Registration"
+                description="Business registration certificate or license"
+                value={form.businessRegistration}
+                onChange={(v) => set("businessRegistration")(v as CompanyDocFile | null)}
+              />
+              <CompanyDocUploadField
+                label="Articles of Association"
+                description="Memorandum and articles of association"
+                value={form.articlesOfAssociation}
+                onChange={(v) => set("articlesOfAssociation")(v as CompanyDocFile | null)}
+              />
+              <CompanyDocUploadField
+                label="Annual Return"
+                description="Latest annual return filing"
+                value={form.annualReturn}
+                onChange={(v) => set("annualReturn")(v as CompanyDocFile | null)}
+              />
+              <CompanyDocUploadField
+                label="Board Resolution"
+                description="Relevant board resolutions"
+                value={form.boardResolution}
+                onChange={(v) => set("boardResolution")(v as CompanyDocFile | null)}
+              />
+              <CompanyDocUploadField
+                label="Other Documents"
+                description="Any additional supporting documents"
+                value={form.otherDocuments}
+                onChange={(v) => set("otherDocuments")(v as CompanyDocFile | null)}
+              />
+            </div>
+          </div>
+
+          {/* Summary box */}
+          <div className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl space-y-2">
+            <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">Summary</p>
+            <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+              <LuUser className="w-3.5 h-3.5 text-brand-500 shrink-0" />
+              <span>Login: <span className="font-medium text-gray-900 dark:text-white">{loginForm.firstName} {loginForm.lastName}</span> ({loginForm.email})</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+              <LuBuilding2 className="w-3.5 h-3.5 text-brand-500 shrink-0" />
+              <span>Company: <span className="font-medium text-gray-900 dark:text-white">{form.companyName || "—"}</span></span>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+              <LuFileText className="w-3.5 h-3.5 text-brand-500 shrink-0" />
+              <span>
+                Documents uploaded: <span className="font-medium text-gray-900 dark:text-white">
+                  {[form.certificateOfIncorporation, form.businessRegistration, form.articlesOfAssociation, form.annualReturn, form.boardResolution, form.otherDocuments].filter(Boolean).length}
+                </span> / 6
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 shrink-0">
+          <button
+            onClick={onBack}
+            disabled={submitting}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+          >
+            <LuArrowLeft className="w-4 h-4" /> Back
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={submitting}
+            className="inline-flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-success-500 hover:bg-success-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
+          >
+            {submitting ? (
+              <><LuRefreshCw className="w-4 h-4 animate-spin" /> Processing…</>
+            ) : (
+              <><LuCheck className="w-4 h-4" /> Complete Registration</>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 function RegistrationDetailContent({ id }: { id: string }) {
@@ -2225,6 +2889,11 @@ function RegistrationDetailContent({ id }: { id: string }) {
   const [editingStatus, setEditingStatus] = useState(false);
   const [draftStatus, setDraftStatus] = useState<RegistrationDetail["status"]>("pending");
   const [savingStatus, setSavingStatus] = useState(false);
+
+  // ── Completion flow modals ───────────────────────────────────────────────
+  const [completionStep, setCompletionStep] = useState<null | 1 | 2>(null);
+  const [completionLoginForm, setCompletionLoginForm] = useState<CreateLoginForm | null>(null);
+  const [completionSubmitting, setCompletionSubmitting] = useState(false);
 
   // Fetch registration detail from backend
   useEffect(() => {
@@ -2249,6 +2918,14 @@ function RegistrationDetailContent({ id }: { id: string }) {
 
   const handleStatusSave = async () => {
     if (!reg || draftStatus === reg.status) { setEditingStatus(false); return; }
+
+    // Intercept pending/in-progress → completed: trigger the 2-step completion flow
+    if ((reg.status === "in-progress" || reg.status === "pending") && draftStatus === "completed") {
+      setEditingStatus(false);
+      setCompletionStep(1);
+      return;
+    }
+
     setSavingStatus(true);
     try {
       const res = await authFetch(`${API_BASE_URL}/api/v1/registrations/${id}`, {
@@ -2263,6 +2940,64 @@ function RegistrationDetailContent({ id }: { id: string }) {
       alert(err instanceof Error ? err.message : "Failed to update status");
     } finally {
       setSavingStatus(false);
+    }
+  };
+
+  // Called after admin fills the second modal and clicks "Complete Registration"
+  const handleCompletionConfirm = async (companySetup: CompanySetupForm) => {
+    if (!reg || !completionLoginForm) return;
+    setCompletionSubmitting(true);
+    try {
+      // 1. Update registration status to completed
+      const statusRes = await authFetch(`${API_BASE_URL}/api/v1/registrations/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "completed" }),
+      });
+      const statusData = await statusRes.json();
+      if (!statusRes.ok) throw new Error(statusData.error || "Failed to update status");
+
+      // 2. Upload any company documents that were provided
+      const docUploads: { documentType: string; key: string }[] = [];
+      const docEntries: Array<{ field: keyof CompanySetupForm; docType: string }> = [
+        { field: "certificateOfIncorporation", docType: "certificate_of_incorporation" },
+        { field: "businessRegistration", docType: "business_license" },
+        { field: "articlesOfAssociation", docType: "others" },
+        { field: "annualReturn", docType: "others" },
+        { field: "boardResolution", docType: "others" },
+        { field: "otherDocuments", docType: "others" },
+      ];
+
+      for (const entry of docEntries) {
+        const docFile = companySetup[entry.field] as CompanyDocFile | null;
+        if (!docFile) continue;
+        try {
+          const presignRes = await authFetch(`${API_BASE_URL}/api/v1/uploads/presign`, {
+            method: "POST",
+            body: JSON.stringify({
+              documentType: entry.docType,
+              fileName: docFile.file.name,
+              mimeType: docFile.file.type,
+              sizeBytes: docFile.file.size,
+            }),
+          });
+          if (!presignRes.ok) continue;
+          const { uploadUrl, key } = await presignRes.json();
+          await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": docFile.file.type }, body: docFile.file });
+          docUploads.push({ documentType: entry.docType, key });
+        } catch {
+          // non-fatal: continue with other docs
+        }
+      }
+
+      // 3. Update local state
+      setReg((r) => r ? { ...r, status: "completed" } : r);
+      setDraftStatus("completed");
+      setCompletionStep(null);
+      setCompletionLoginForm(null);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to complete registration");
+    } finally {
+      setCompletionSubmitting(false);
     }
   };
 
@@ -2300,6 +3035,12 @@ function RegistrationDetailContent({ id }: { id: string }) {
       shares: p.shareholding.shares,
       percentage: p.shareholding.percentage,
     },
+    documents: Object.fromEntries(
+      Object.entries(p.documents).map(([docType, doc]) => [
+        docType,
+        doc ? { key: (doc as DocumentFile).key, url: (doc as DocumentFile).url, fileName: (doc as DocumentFile).fileName, mimeType: (doc as DocumentFile).mimeType, size: (doc as DocumentFile).size } : null,
+      ])
+    ),
   });
 
   const updatePersons = (p: Person[]) => setReg((r) => r ? { ...r, persons: p } : r);
@@ -2376,6 +3117,34 @@ function RegistrationDetailContent({ id }: { id: string }) {
   if (!reg) return null;
 
   return (
+    <>
+    {/* ── Completion Flow Modals ─────────────────────────────────────────── */}
+    {completionStep === 1 && (
+      <CreateLoginModal
+        reg={reg}
+        onNext={(form) => {
+          setCompletionLoginForm(form);
+          setCompletionStep(2);
+        }}
+        onClose={() => {
+          setCompletionStep(null);
+          setCompletionLoginForm(null);
+        }}
+      />
+    )}
+    {completionStep === 2 && completionLoginForm && (
+      <CompanySetupModal
+        reg={reg}
+        loginForm={completionLoginForm}
+        onConfirm={handleCompletionConfirm}
+        onBack={() => setCompletionStep(1)}
+        onClose={() => {
+          setCompletionStep(null);
+          setCompletionLoginForm(null);
+        }}
+        submitting={completionSubmitting}
+      />
+    )}
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -2554,6 +3323,7 @@ function RegistrationDetailContent({ id }: { id: string }) {
       />
       <ComplianceSection data={reg.complianceAccepted} />
     </div>
+    </>
   );
 }
 
