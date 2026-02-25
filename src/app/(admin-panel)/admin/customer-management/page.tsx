@@ -875,7 +875,7 @@ export default function CustomerManagementPage() {
           onClick={() => setAddStep(1)}
           className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-500 hover:bg-brand-600 rounded-lg transition-colors"
         >
-          <LuPlus className="w-4 h-4" /> Add Customer
+          <LuPlus className="w-4 h-4" /> Create Customer
         </button>
       </div>
 
