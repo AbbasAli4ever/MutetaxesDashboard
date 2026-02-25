@@ -624,11 +624,11 @@ function CompanySetupModal({ loginForm, detail, onConfirm, onBack, onClose, subm
         <div className="overflow-y-auto flex-1 px-6 py-5 space-y-6">
 
           {/* Source hint */}
-          {reg && (
+          {detail && (
             <div className="flex items-center gap-2 px-3 py-2 bg-brand-50 dark:bg-brand-500/10 border border-brand-200 dark:border-brand-500/30 rounded-lg">
               <LuBuilding2 className="w-3.5 h-3.5 text-brand-600 dark:text-brand-400 shrink-0" />
               <p className="text-xs text-brand-700 dark:text-brand-400">
-                Auto-filled from <span className="font-semibold">{reg.id}</span> — edit any field if needed.
+                Auto-filled from <span className="font-semibold">{detail.id}</span> — edit any field if needed.
               </p>
             </div>
           )}
