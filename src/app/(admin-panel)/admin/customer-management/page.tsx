@@ -247,6 +247,11 @@ interface CreateLoginForm {
   confirmPassword: string;
 }
 
+interface ShareholderEntry {
+  name: string;
+  percentage: string;
+}
+
 interface CompanySetupForm {
   companyName: string;
   businessNature: string;
@@ -254,7 +259,7 @@ interface CompanySetupForm {
   phoneNumber: string;
   registeredOfficeAddress: string;
   directors: string;
-  shareholders: string;
+  shareholders: ShareholderEntry[];
   certificateOfIncorporation: CompanyDocFile | null;
   businessRegistration: CompanyDocFile | null;
   articlesOfAssociation: CompanyDocFile | null;
@@ -541,17 +546,16 @@ function CompanySetupModal({ loginForm, detail, onConfirm, onBack, onClose, subm
         .join(", ")
     : "";
 
-  // Build shareholders string from stakeholders
-  const shareholdersStr = detail
+  // Build shareholders array from stakeholders
+  const shareholdersInit: ShareholderEntry[] = detail
     ? detail.stakeholders
         .filter((s) => s.roles.some((r) => r.toLowerCase().includes("shareholder")))
-        .map((s) => {
-          const name = s.fullName || s.companyName || "";
-          return s.sharePercentage != null ? `${name} (${s.sharePercentage}%)` : name;
-        })
-        .filter(Boolean)
-        .join(", ")
-    : "";
+        .map((s) => ({
+          name: s.fullName || s.companyName || "",
+          percentage: s.sharePercentage != null ? String(s.sharePercentage) : "",
+        }))
+        .filter((s) => s.name)
+    : [];
 
   const [form, setForm] = useState<CompanySetupForm>({
     companyName:             detail?.proposedCompanyName                    ?? "",
@@ -560,7 +564,7 @@ function CompanySetupModal({ loginForm, detail, onConfirm, onBack, onClose, subm
     phoneNumber:             detail?.applicantPhone || "",
     registeredOfficeAddress: address,
     directors:               directorsStr,
-    shareholders:            shareholdersStr,
+    shareholders:            shareholdersInit.length ? shareholdersInit : [{ name: "", percentage: "" }],
     certificateOfIncorporation: null,
     businessRegistration:       null,
     articlesOfAssociation:      null,
@@ -578,12 +582,30 @@ function CompanySetupModal({ loginForm, detail, onConfirm, onBack, onClose, subm
     phoneNumber:             !form.phoneNumber.trim()             ? "Required" : "",
     registeredOfficeAddress: !form.registeredOfficeAddress.trim() ? "Required" : "",
     directors:               !form.directors.trim()               ? "Required" : "",
-    shareholders:            !form.shareholders.trim()            ? "Required" : "",
+    shareholders:            !form.shareholders.some((s) => s.name.trim()) ? "At least one shareholder required" : "",
   };
   const valid = Object.values(errors).every((e) => !e);
 
   const set = (k: keyof CompanySetupForm) => (v: string | CompanyDocFile | null) =>
     setForm((p) => ({ ...p, [k]: v }));
+
+  function updateShareholder(index: number, field: keyof ShareholderEntry, value: string) {
+    setForm((p) => {
+      const updated = p.shareholders.map((s, i) => i === index ? { ...s, [field]: value } : s);
+      return { ...p, shareholders: updated };
+    });
+  }
+
+  function addShareholder() {
+    setForm((p) => ({ ...p, shareholders: [...p.shareholders, { name: "", percentage: "" }] }));
+  }
+
+  function removeShareholder(index: number) {
+    setForm((p) => ({
+      ...p,
+      shareholders: p.shareholders.length > 1 ? p.shareholders.filter((_, i) => i !== index) : p.shareholders,
+    }));
+  }
 
   function handleConfirm() {
     setTouched(true);
@@ -687,7 +709,46 @@ function CompanySetupModal({ loginForm, detail, onConfirm, onBack, onClose, subm
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Shareholders with Shareholding % <span className="text-error-500">*</span></label>
-                <textarea value={form.shareholders} onChange={(e) => set("shareholders")(e.target.value)} rows={2} placeholder="e.g. John Smith (60%), Jane Doe (40%)" className={(touched && errors.shareholders ? inputErrCls : inputCls) + " resize-none"} />
+                <div className="space-y-2">
+                  {form.shareholders.map((s, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={s.name}
+                        onChange={(e) => updateShareholder(i, "name", e.target.value)}
+                        placeholder="Shareholder name"
+                        className={`${touched && !s.name.trim() ? inputErrCls : inputCls} flex-1`}
+                      />
+                      <div className="relative w-28 shrink-0">
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={s.percentage}
+                          onChange={(e) => updateShareholder(i, "percentage", e.target.value)}
+                          placeholder="0"
+                          className={`${inputCls} w-full pr-7`}
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">%</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeShareholder(i)}
+                        disabled={form.shareholders.length === 1}
+                        className="p-1.5 text-gray-400 hover:text-error-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
+                      >
+                        <LuX className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={addShareholder}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 transition-colors"
+                  >
+                    <LuPlus className="w-3.5 h-3.5" /> Add Shareholder
+                  </button>
+                </div>
                 {touched && errors.shareholders && <p className="mt-1 text-xs text-error-500">{errors.shareholders}</p>}
               </div>
             </div>
@@ -760,6 +821,7 @@ export default function CustomerManagementPage() {
   // Add Customer modal
   const [addStep,       setAddStep]       = useState<null | 1 | 2>(null);
   const [addLoginForm,  setAddLoginForm]  = useState<CreateLoginForm | null>(null);
+  const [addDetail,     setAddDetail]     = useState<ApiRegistrationDetail | null>(null);
   const [addSubmitting, setAddSubmitting] = useState(false);
 
   const filtered = useMemo(() => {
@@ -977,16 +1039,17 @@ export default function CustomerManagementPage() {
       {/* ── Add Customer Modals ─────────────────────────────────────────────── */}
       {addStep === 1 && (
         <CreateLoginModal
-          onNext={(form) => { setAddLoginForm(form); setAddStep(2); }}
-          onClose={() => { setAddStep(null); setAddLoginForm(null); }}
+          onNext={(form, detail) => { setAddLoginForm(form); setAddDetail(detail); setAddStep(2); }}
+          onClose={() => { setAddStep(null); setAddLoginForm(null); setAddDetail(null); }}
         />
       )}
       {addStep === 2 && addLoginForm && (
         <CompanySetupModal
           loginForm={addLoginForm}
+          detail={addDetail}
           onConfirm={handleAddCustomerConfirm}
           onBack={() => setAddStep(1)}
-          onClose={() => { setAddStep(null); setAddLoginForm(null); }}
+          onClose={() => { setAddStep(null); setAddLoginForm(null); setAddDetail(null); }}
           submitting={addSubmitting}
         />
       )}
