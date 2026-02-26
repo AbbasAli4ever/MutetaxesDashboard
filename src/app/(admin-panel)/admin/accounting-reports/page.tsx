@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import PageAccessGuard from "@/components/common/PageAccessGuard";
+import ComingSoonOverlay from "@/components/common/ComingSoonOverlay";
 import {
   LuCircleCheck,
   LuShieldCheck,
@@ -197,26 +198,27 @@ export default function AdminCompliance() {
 
   return (
     <PageAccessGuard module="COMPLIANCE">
-    <div className="space-y-6 w-full">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Compliance</h1>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Monitor compliance checks and regulations</p>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-        {statCards.map((card) => (
-          <div key={card.label} className={`rounded-xl border ${card.border} bg-white dark:bg-gray-900 p-5 shadow-theme-sm`}>
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{card.label}</span>
-              {card.icon}
-            </div>
-            <p className="text-3xl font-bold text-gray-900 dark:text-white mb-1">{card.count}</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">{card.sub}</p>
+      <ComingSoonOverlay title="Coming Soon" subtitle="Admin compliance reports are under development.">
+        <div className="space-y-6 w-full">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Compliance</h1>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Monitor compliance checks and regulations</p>
           </div>
-        ))}
-      </div>
 
-      <div className="w-full max-w-[720px] lg:max-w-[680px] xl:max-w-full rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-theme-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+            {statCards.map((card) => (
+              <div key={card.label} className={`rounded-xl border ${card.border} bg-white dark:bg-gray-900 p-5 shadow-theme-sm`}>
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{card.label}</span>
+                  {card.icon}
+                </div>
+                <p className="text-3xl font-bold text-gray-900 dark:text-white mb-1">{card.count}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{card.sub}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="w-full max-w-[720px] lg:max-w-[680px] xl:max-w-full rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-theme-sm">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
           <h2 className="text-base font-semibold text-gray-900 dark:text-white">Compliance Checks</h2>
           <button
@@ -301,8 +303,9 @@ export default function AdminCompliance() {
             </div>
           )}
         </div>
-      </div>
-    </div>
+          </div>
+        </div>
+      </ComingSoonOverlay>
     </PageAccessGuard>
   );
 }
