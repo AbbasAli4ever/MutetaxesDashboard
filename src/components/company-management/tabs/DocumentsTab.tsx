@@ -3,7 +3,7 @@
 import React from "react";
 import { FiFileText } from "react-icons/fi";
 import { MdOutlineFileDownload } from "react-icons/md";
-import { LuRefreshCw } from "react-icons/lu";
+import { LuEye, LuRefreshCw } from "react-icons/lu";
 import {
   formatBytes,
   formatDateDisplay,
@@ -17,6 +17,7 @@ export default function DocumentsTab() {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState("");
   const [downloadingId, setDownloadingId] = React.useState<string | null>(null);
+  const [previewingId, setPreviewingId] = React.useState<string | null>(null);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -76,6 +77,34 @@ export default function DocumentsTab() {
     }
   }, []);
 
+  const handlePreview = React.useCallback(async (doc: CustomerDocumentApi) => {
+    if (doc.status === "pending_upload") {
+      alert("Document is still uploading and not available yet.");
+      return;
+    }
+    setPreviewingId(doc.id);
+    try {
+      const url =
+        (await getCustomerDocumentDownloadUrl(doc.id)) ||
+        doc.fileUrl ||
+        doc.publicUrl ||
+        null;
+      if (!url) throw new Error("Preview URL not available");
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to preview document");
+    } finally {
+      setPreviewingId(null);
+    }
+  }, []);
+
   return (
     <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03] p-6">
       <div className="flex items-center justify-between mb-6">
@@ -127,14 +156,24 @@ export default function DocumentsTab() {
                   </div>
                 </div>
               </div>
-              <button
-                onClick={() => void handleDownload(doc)}
-                disabled={downloadingId === doc.id}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
-              >
-                {downloadingId === doc.id ? <LuRefreshCw className="w-4 h-4 animate-spin" /> : <MdOutlineFileDownload className="w-4 h-4" />}
-                {downloadingId === doc.id ? "Loading..." : "Download"}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => void handlePreview(doc)}
+                  disabled={previewingId === doc.id}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+                >
+                  {previewingId === doc.id ? <LuRefreshCw className="w-4 h-4 animate-spin" /> : <LuEye className="w-4 h-4" />}
+                  {previewingId === doc.id ? "Loading..." : "Preview"}
+                </button>
+                <button
+                  onClick={() => void handleDownload(doc)}
+                  disabled={downloadingId === doc.id}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
+                >
+                  {downloadingId === doc.id ? <LuRefreshCw className="w-4 h-4 animate-spin" /> : <MdOutlineFileDownload className="w-4 h-4" />}
+                  {downloadingId === doc.id ? "Loading..." : "Download"}
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -142,4 +181,3 @@ export default function DocumentsTab() {
     </div>
   );
 }
-
