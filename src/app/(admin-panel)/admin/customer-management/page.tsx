@@ -68,6 +68,13 @@ interface AdminCustomerListApiRow {
   createdAt?: string | null;
 }
 
+type InlineToast = {
+  id: number;
+  variant: "success" | "error";
+  title: string;
+  description?: string;
+};
+
 // ─── API Registration Types ───────────────────────────────────────────────────
 
 interface ApiRegistration {
@@ -896,6 +903,19 @@ export default function CustomerManagementPage() {
   const [addDetail,     setAddDetail]     = useState<ApiRegistrationDetail | null>(null);
   const [addSubmitting, setAddSubmitting] = useState(false);
   const [addSubmittingLabel, setAddSubmittingLabel] = useState("");
+  const [toast, setToast] = useState<InlineToast | null>(null);
+
+  function showToast(variant: InlineToast["variant"], title: string, description?: string) {
+    setToast({ id: Date.now(), variant, title, description });
+  }
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => {
+      setToast((current) => (current?.id === toast.id ? null : current));
+    }, 4200);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1005,16 +1025,20 @@ export default function CustomerManagementPage() {
       setAddLoginForm(null);
       setAddDetail(null);
       setRefreshTableKey((k) => k + 1);
-      alert(
-        `Customer created successfully.\nCustomer ID: ${result.customerId}\nRegistration linked: ${result.registrationLinked ? "Yes" : "No"}\nCompany profile saved: ${result.companyProfileSaved ? "Yes" : "No"}\nDocuments uploaded: ${result.uploadedDocuments.length}`
+      showToast(
+        "success",
+        "Customer created successfully",
+        `Customer ID #${result.customerId} • ${result.uploadedDocuments.length} document(s) uploaded`
       );
     } catch (err) {
       if (err instanceof CustomerOnboardingFlowError) {
-        alert(
-          `Customer onboarding failed during ${err.step}.\n${err.message}\n\nPartial progress:\nCustomer created: ${err.partialResult.customerId ? `Yes (#${err.partialResult.customerId})` : "No"}\nRegistration linked: ${err.partialResult.registrationLinked ? "Yes" : "No"}\nCompany profile saved: ${err.partialResult.companyProfileSaved ? "Yes" : "No"}\nDocuments uploaded: ${err.partialResult.uploadedDocuments?.length ?? 0}`
+        showToast(
+          "error",
+          "Customer creation failed",
+          `${formatStatus(err.step)}: ${err.message}`
         );
       } else {
-        alert(err instanceof Error ? err.message : "Failed to create customer");
+        showToast("error", "Customer creation failed", err instanceof Error ? err.message : "Failed to create customer");
       }
     } finally {
       setAddSubmitting(false);
@@ -1237,6 +1261,47 @@ export default function CustomerManagementPage() {
           submitting={addSubmitting}
           submittingLabel={addSubmittingLabel}
         />
+      )}
+
+      {toast && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[120] w-[calc(100vw-2rem)] max-w-md">
+          <div
+            className={`relative rounded-xl border shadow-2xl backdrop-blur-sm px-4 py-3 pr-10 ${
+              toast.variant === "success"
+                ? "bg-white/95 dark:bg-gray-900/95 border-success-200 dark:border-success-500/30"
+                : "bg-white/95 dark:bg-gray-900/95 border-error-200 dark:border-error-500/30"
+            }`}
+            role="status"
+            aria-live="polite"
+          >
+            <div className="flex items-start gap-3">
+              <div
+                className={`mt-0.5 w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${
+                  toast.variant === "success"
+                    ? "bg-success-100 text-success-700 dark:bg-success-500/15 dark:text-success-400"
+                    : "bg-error-100 text-error-700 dark:bg-error-500/15 dark:text-error-400"
+                }`}
+              >
+                {toast.variant === "success" ? <LuCheck className="w-4 h-4" /> : <LuX className="w-4 h-4" />}
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">{toast.title}</p>
+                {toast.description && (
+                  <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-300 break-words">{toast.description}</p>
+                )}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setToast(null)}
+              className="absolute top-2.5 right-2.5 p-1 rounded-md text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              aria-label="Dismiss notification"
+            >
+              <LuX className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
