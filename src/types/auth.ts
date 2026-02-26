@@ -3,6 +3,8 @@ export interface User {
   email: string;
   name: string;
   role: string;
+  type: "ADMIN" | "CUSTOMER";
+  dashboardPath: string;
   permissions: string[];
 }
 

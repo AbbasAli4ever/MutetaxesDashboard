@@ -15,14 +15,22 @@ export default function UserLayout({
   children: React.ReactNode;
 }) {
   const { isExpanded, isHovered, isMobileOpen } = useSidebar();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
+    if (isLoading) return;
+
+    if (!isAuthenticated) {
       router.replace("/signin");
+      return;
     }
-  }, [isAuthenticated, isLoading, router]);
+
+    // Only CUSTOMER users can access the customer portal
+    if (user?.type !== "CUSTOMER") {
+      router.replace("/admin/dashboard");
+    }
+  }, [isAuthenticated, isLoading, user, router]);
 
   // Dynamic class for main content margin based on sidebar state
   const mainContentMargin = isMobileOpen
@@ -31,8 +39,8 @@ export default function UserLayout({
     ? "lg:ml-[290px]"
     : "lg:ml-[90px]";
 
-  // Show nothing while checking auth or if not authenticated
-  if (isLoading || !isAuthenticated) {
+  // Show nothing while checking auth, not authenticated, or wrong user type
+  if (isLoading || !isAuthenticated || user?.type !== "CUSTOMER") {
     return null;
   }
 

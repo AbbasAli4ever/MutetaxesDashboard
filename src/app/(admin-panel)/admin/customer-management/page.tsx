@@ -1,8 +1,14 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { authFetch, API_BASE_URL } from "@/lib/auth";
+import {
+  CustomerOnboardingFlowError,
+  runCustomerOnboardingFlow,
+  type CustomerOnboardingDocumentInput,
+} from "@/lib/customer-onboarding";
+import DatePicker from "@/components/form/date-picker";
 import {
   LuSearch,
   LuBuilding2,
@@ -47,6 +53,21 @@ interface CustomerListItem {
   active: boolean;
 }
 
+interface AdminCustomerListApiRow {
+  id?: number;
+  customerId?: number;
+  name: string;
+  status: string | boolean;
+  email: string;
+  companyName: string | null;
+  companyType: string | null;
+  country?: string | null;
+  countryOfIncorporation?: string | null;
+  registrationStatus?: "pending" | "in-progress" | "completed" | null;
+  registrationId?: string | null;
+  createdAt?: string | null;
+}
+
 // ─── API Registration Types ───────────────────────────────────────────────────
 
 interface ApiRegistration {
@@ -60,10 +81,14 @@ interface ApiRegistration {
 
 interface ApiRegistrationDetail {
   id: string;
+  status: string;
   clientName: string;
   clientEmail: string;
   phone: string;
   proposedCompanyName: string;
+  companyType: string | null;
+  countryOfIncorporation: string | null;
+  businessRegistrationNumber: string | null;
   natureOfBusiness: string[];
   applicantEmail: string;
   applicantPhone: string;
@@ -80,31 +105,6 @@ interface ApiRegistrationDetail {
     numberOfShares: number | null;
   }>;
 }
-
-// ─── Dummy Customers ──────────────────────────────────────────────────────────
-
-const DUMMY_CUSTOMERS: CustomerListItem[] = [
-  { id: 1,  firstName: "James",    lastName: "Whitfield",  email: "james.whitfield@gmail.com",    companyName: "Whitfield Holdings Ltd",    companyType: "Private Limited", countryOfIncorporation: "Hong Kong",    registrationStatus: "completed",   registrationId: "reg-001", createdAt: "2024-08-12T10:30:00Z", active: true },
-  { id: 2,  firstName: "Priya",    lastName: "Sharma",     email: "priya.sharma@techvision.io",   companyName: "TechVision Innovations",    companyType: "Private Limited", countryOfIncorporation: "Singapore",   registrationStatus: "in-progress", registrationId: "reg-002", createdAt: "2024-09-03T08:00:00Z", active: true },
-  { id: 3,  firstName: "Marcus",   lastName: "Chen",       email: "marcus.chen@alphagroup.hk",    companyName: "Alpha Group International", companyType: "Public Limited",  countryOfIncorporation: "Hong Kong",   registrationStatus: "completed",   registrationId: "reg-003", createdAt: "2024-07-21T14:15:00Z", active: true },
-  { id: 4,  firstName: "Fatima",   lastName: "Al-Hassan",  email: "fatima@alhassan-ventures.ae",  companyName: "Al-Hassan Ventures",        companyType: "LLC",             countryOfIncorporation: "UAE",         registrationStatus: "pending",     registrationId: "reg-004", createdAt: "2024-11-05T09:45:00Z", active: true },
-  { id: 5,  firstName: "Oliver",   lastName: "Sutton",     email: "oliver.sutton@suttonlaw.co.uk",companyName: "Sutton Legal Consultancy",  companyType: "Partnership",     countryOfIncorporation: "UK",          registrationStatus: "completed",   registrationId: "reg-005", createdAt: "2024-06-18T11:00:00Z", active: false },
-  { id: 6,  firstName: "Mei",      lastName: "Zhang",      email: "mei.zhang@zhanginvest.com",    companyName: "Zhang Investment Group",    companyType: "Private Limited", countryOfIncorporation: "Hong Kong",   registrationStatus: "in-progress", registrationId: "reg-006", createdAt: "2024-10-29T07:30:00Z", active: true },
-  { id: 7,  firstName: "Sebastien",lastName: "Dubois",     email: "s.dubois@europartners.fr",     companyName: "Euro Partners SAS",         companyType: "SAS",             countryOfIncorporation: "France",      registrationStatus: "pending",     registrationId: "reg-007", createdAt: "2024-12-01T13:00:00Z", active: true },
-  { id: 8,  firstName: "Amara",    lastName: "Okonkwo",    email: "amara.okonkwo@nexafin.ng",     companyName: "NexaFin Solutions",         companyType: "Private Limited", countryOfIncorporation: "Nigeria",     registrationStatus: "completed",   registrationId: "reg-008", createdAt: "2024-08-30T16:20:00Z", active: true },
-  { id: 9,  firstName: "Daniel",   lastName: "Park",       email: "dpark@koreasmart.co.kr",       companyName: "Korea Smart Technology",    companyType: "Corporation",     countryOfIncorporation: "South Korea", registrationStatus: "in-progress", registrationId: "reg-009", createdAt: "2024-09-15T10:10:00Z", active: true },
-  { id: 10, firstName: "Sofia",    lastName: "Monteiro",   email: "sofia.m@monteiro-group.br",    companyName: "Monteiro Group Ltda",       companyType: "Ltda",            countryOfIncorporation: "Brazil",      registrationStatus: "pending",     registrationId: "reg-010", createdAt: "2024-11-22T12:00:00Z", active: false },
-  { id: 11, firstName: "Raj",      lastName: "Patel",      email: "raj.patel@pateltrade.in",      companyName: "Patel Trade & Commerce",    companyType: "Private Limited", countryOfIncorporation: "India",       registrationStatus: "completed",   registrationId: "reg-011", createdAt: "2024-07-08T09:00:00Z", active: true },
-  { id: 12, firstName: "Elena",    lastName: "Kovach",     email: "e.kovach@kovachcap.ua",        companyName: "Kovach Capital Partners",   companyType: "LLC",             countryOfIncorporation: "Ukraine",     registrationStatus: "in-progress", registrationId: "reg-012", createdAt: "2024-10-11T15:30:00Z", active: true },
-  { id: 13, firstName: "Thomas",   lastName: "Bergmann",   email: "t.bergmann@bergmann-gmbh.de",  companyName: "Bergmann GmbH",             companyType: "GmbH",            countryOfIncorporation: "Germany",     registrationStatus: "completed",   registrationId: "reg-013", createdAt: "2024-05-25T11:45:00Z", active: true },
-  { id: 14, firstName: "Laila",    lastName: "Rahimi",     email: "laila.rahimi@rahimire.ae",     companyName: "Rahimi Real Estate",        companyType: "LLC",             countryOfIncorporation: "UAE",         registrationStatus: "pending",     registrationId: "reg-014", createdAt: "2024-12-08T08:00:00Z", active: true },
-  { id: 15, firstName: "Kevin",    lastName: "Osei",       email: "kevin.osei@oseilogistics.gh",  companyName: "Osei Logistics Ltd",        companyType: "Private Limited", countryOfIncorporation: "Ghana",       registrationStatus: "completed",   registrationId: "reg-015", createdAt: "2024-09-27T14:00:00Z", active: true },
-  { id: 16, firstName: "Yuki",     lastName: "Tanaka",     email: "yuki.tanaka@tanaka-hd.jp",     companyName: "Tanaka Holdings Co.",       companyType: "KK",              countryOfIncorporation: "Japan",       registrationStatus: "in-progress", registrationId: "reg-016", createdAt: "2024-10-05T09:20:00Z", active: true },
-  { id: 17, firstName: "Camille",  lastName: "Fontaine",   email: "camille.f@fontainelux.fr",     companyName: "Fontaine Luxe SAS",         companyType: "SAS",             countryOfIncorporation: "France",      registrationStatus: "completed",   registrationId: "reg-017", createdAt: "2024-06-02T10:00:00Z", active: false },
-  { id: 18, firstName: "Arjun",    lastName: "Mehta",      email: "arjun.mehta@mehtacorp.in",     companyName: "Mehta Corporation",         companyType: "Private Limited", countryOfIncorporation: "India",       registrationStatus: "pending",     registrationId: "reg-018", createdAt: "2024-11-14T13:30:00Z", active: true },
-  { id: 19, firstName: "Isabella", lastName: "Rossi",      email: "i.rossi@rossi-ventures.it",    companyName: "Rossi Ventures SpA",        companyType: "SpA",             countryOfIncorporation: "Italy",       registrationStatus: "completed",   registrationId: "reg-019", createdAt: "2024-08-19T11:15:00Z", active: true },
-  { id: 20, firstName: "Ahmed",    lastName: "Al-Farsi",   email: "ahmed.alfarsi@alfarsico.om",   companyName: "Al-Farsi Investments Co.",  companyType: "LLC",             countryOfIncorporation: "Oman",        registrationStatus: "in-progress", registrationId: "reg-020", createdAt: "2024-07-30T08:45:00Z", active: true },
-];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -136,6 +136,14 @@ function getInitials(first: string, last: string) {
   return `${first.charAt(0)}${last.charAt(0)}`.toUpperCase();
 }
 
+function normalizeRegistrationStatus(value: string): "pending" | "in-progress" | "completed" | undefined {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "pending" || normalized === "in-progress" || normalized === "completed") {
+    return normalized;
+  }
+  return undefined;
+}
+
 const AVATAR_COLORS = [
   "bg-brand-100 text-brand-700 dark:bg-brand-500/20 dark:text-brand-300",
   "bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300",
@@ -146,6 +154,40 @@ const AVATAR_COLORS = [
 
 function avatarColor(id: number) {
   return AVATAR_COLORS[id % AVATAR_COLORS.length];
+}
+
+function splitName(name: string) {
+  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+  return {
+    firstName: parts[0] ?? "",
+    lastName: parts.slice(1).join(" "),
+  };
+}
+
+function normalizeActiveStatus(status: string | boolean): boolean {
+  if (typeof status === "boolean") return status;
+  const v = String(status).toLowerCase();
+  return v === "active" || v === "true" || v === "1";
+}
+
+function mapAdminCustomerRow(row: AdminCustomerListApiRow, indexFallback = 0): CustomerListItem {
+  const { firstName, lastName } = splitName(row.name);
+  const id = Number(row.id ?? row.customerId ?? indexFallback);
+  const registrationStatus = normalizeRegistrationStatus(String(row.registrationStatus ?? "")) ?? "pending";
+
+  return {
+    id: Number.isFinite(id) && id > 0 ? id : indexFallback,
+    firstName,
+    lastName,
+    email: row.email || "",
+    companyName: row.companyName || "—",
+    companyType: row.companyType ?? null,
+    countryOfIncorporation: row.countryOfIncorporation ?? row.country ?? null,
+    registrationStatus,
+    registrationId: row.registrationId ?? null,
+    createdAt: row.createdAt || "",
+    active: normalizeActiveStatus(row.status),
+  };
 }
 
 const STATUS_OPTIONS = [
@@ -247,25 +289,52 @@ interface CreateLoginForm {
   confirmPassword: string;
 }
 
-interface ShareholderEntry {
-  name: string;
-  percentage: string;
-}
-
 interface CompanySetupForm {
   companyName: string;
+  companyType: string;
+  countryOfIncorporation: string;
+  businessRegistrationNumber: string;
+  incorporationDate: string;
+  status: string;
   businessNature: string;
   businessEmail: string;
   phoneNumber: string;
   registeredOfficeAddress: string;
-  directors: string;
-  shareholders: ShareholderEntry[];
   certificateOfIncorporation: CompanyDocFile | null;
   businessRegistration: CompanyDocFile | null;
   articlesOfAssociation: CompanyDocFile | null;
   annualReturn: CompanyDocFile | null;
   boardResolution: CompanyDocFile | null;
   otherDocuments: CompanyDocFile | null;
+}
+
+function companySetupDocsToUpload(
+  form: CompanySetupForm,
+  registrationId?: string
+): CustomerOnboardingDocumentInput[] {
+  const mappings: Array<{
+    file: CompanyDocFile | null;
+    name: string;
+    category: string;
+    documentType: string;
+  }> = [
+    { file: form.certificateOfIncorporation, name: "Certificate of Incorporation", category: "Incorporation", documentType: "certificate_of_incorporation" },
+    { file: form.businessRegistration, name: "Business Registration", category: "Registration", documentType: "business_registration_certificate" },
+    { file: form.articlesOfAssociation, name: "Articles of Association", category: "Constitution", documentType: "articles_of_association" },
+    { file: form.annualReturn, name: "Annual Return", category: "Statutory", documentType: "annual_return" },
+    { file: form.boardResolution, name: "Board Resolution", category: "Statutory", documentType: "board_resolution" },
+    { file: form.otherDocuments, name: "Other Documents", category: "Other", documentType: "other" },
+  ];
+
+  return mappings
+    .filter((item) => item.file)
+    .map((item) => ({
+      name: item.name,
+      category: item.category,
+      documentType: item.documentType,
+      file: item.file!.file,
+      registrationId,
+    }));
 }
 
 // ─── Modal Step 1: Create Customer Login ──────────────────────────────────────
@@ -343,7 +412,8 @@ function CreateLoginModal({ onNext, onClose }: {
     }
   }
 
-  const set = (k: keyof CreateLoginForm) => (v: string) => setForm((p) => ({ ...p, [k]: v }));
+  const set = <K extends keyof CreateLoginForm>(k: K) => (v: CreateLoginForm[K]) =>
+    setForm((p) => ({ ...p, [k]: v }));
 
   const errors = {
     registrationId:  !form.registrationId           ? "Please select a registration" : "",
@@ -523,13 +593,14 @@ function CreateLoginModal({ onNext, onClose }: {
 
 // ─── Modal Step 2: Company Setup ──────────────────────────────────────────────
 
-function CompanySetupModal({ loginForm, detail, onConfirm, onBack, onClose, submitting }: {
+function CompanySetupModal({ loginForm, detail, onConfirm, onBack, onClose, submitting, submittingLabel }: {
   loginForm: CreateLoginForm;
   detail: ApiRegistrationDetail | null;
   onConfirm: (form: CompanySetupForm) => void;
   onBack: () => void;
   onClose: () => void;
   submitting: boolean;
+  submittingLabel?: string;
 }) {
   // Build address from billing fields
   const address = detail
@@ -537,34 +608,17 @@ function CompanySetupModal({ loginForm, detail, onConfirm, onBack, onClose, subm
         .filter(Boolean).join(", ")
     : "";
 
-  // Build directors string from stakeholders
-  const directorsStr = detail
-    ? detail.stakeholders
-        .filter((s) => s.roles.some((r) => r.toLowerCase().includes("director")))
-        .map((s) => s.fullName || s.companyName || "")
-        .filter(Boolean)
-        .join(", ")
-    : "";
-
-  // Build shareholders array from stakeholders
-  const shareholdersInit: ShareholderEntry[] = detail
-    ? detail.stakeholders
-        .filter((s) => s.roles.some((r) => r.toLowerCase().includes("shareholder")))
-        .map((s) => ({
-          name: s.fullName || s.companyName || "",
-          percentage: s.sharePercentage != null ? String(s.sharePercentage) : "",
-        }))
-        .filter((s) => s.name)
-    : [];
-
   const [form, setForm] = useState<CompanySetupForm>({
-    companyName:             detail?.proposedCompanyName                    ?? "",
-    businessNature:          (detail?.natureOfBusiness ?? []).join(", "),
-    businessEmail:           detail?.applicantEmail || loginForm.email,
-    phoneNumber:             detail?.applicantPhone || "",
-    registeredOfficeAddress: address,
-    directors:               directorsStr,
-    shareholders:            shareholdersInit.length ? shareholdersInit : [{ name: "", percentage: "" }],
+    companyName:                detail?.proposedCompanyName ?? "",
+    companyType:                detail?.companyType ?? "",
+    countryOfIncorporation:     detail?.countryOfIncorporation ?? detail?.billingCountry ?? "",
+    businessRegistrationNumber: detail?.businessRegistrationNumber ?? "",
+    incorporationDate:          "",
+    status:                     detail?.status ?? "",
+    businessNature:             (detail?.natureOfBusiness ?? []).join(", "),
+    businessEmail:              detail?.applicantEmail || loginForm.email,
+    phoneNumber:                detail?.applicantPhone || "",
+    registeredOfficeAddress:    address,
     certificateOfIncorporation: null,
     businessRegistration:       null,
     articlesOfAssociation:      null,
@@ -577,35 +631,16 @@ function CompanySetupModal({ loginForm, detail, onConfirm, onBack, onClose, subm
 
   const errors = {
     companyName:             !form.companyName.trim()             ? "Required" : "",
+    companyType:             !form.companyType.trim()             ? "Required" : "",
     businessNature:          !form.businessNature.trim()          ? "Required" : "",
     businessEmail:           !form.businessEmail.trim()           ? "Required" : !isValidEmail(form.businessEmail) ? "Invalid email" : "",
     phoneNumber:             !form.phoneNumber.trim()             ? "Required" : "",
     registeredOfficeAddress: !form.registeredOfficeAddress.trim() ? "Required" : "",
-    directors:               !form.directors.trim()               ? "Required" : "",
-    shareholders:            !form.shareholders.some((s) => s.name.trim()) ? "At least one shareholder required" : "",
   };
   const valid = Object.values(errors).every((e) => !e);
 
   const set = (k: keyof CompanySetupForm) => (v: string | CompanyDocFile | null) =>
     setForm((p) => ({ ...p, [k]: v }));
-
-  function updateShareholder(index: number, field: keyof ShareholderEntry, value: string) {
-    setForm((p) => {
-      const updated = p.shareholders.map((s, i) => i === index ? { ...s, [field]: value } : s);
-      return { ...p, shareholders: updated };
-    });
-  }
-
-  function addShareholder() {
-    setForm((p) => ({ ...p, shareholders: [...p.shareholders, { name: "", percentage: "" }] }));
-  }
-
-  function removeShareholder(index: number) {
-    setForm((p) => ({
-      ...p,
-      shareholders: p.shareholders.length > 1 ? p.shareholders.filter((_, i) => i !== index) : p.shareholders,
-    }));
-  }
 
   function handleConfirm() {
     setTouched(true);
@@ -650,7 +685,7 @@ function CompanySetupModal({ loginForm, detail, onConfirm, onBack, onClose, subm
             <div className="flex items-center gap-2 px-3 py-2 bg-brand-50 dark:bg-brand-500/10 border border-brand-200 dark:border-brand-500/30 rounded-lg">
               <LuBuilding2 className="w-3.5 h-3.5 text-brand-600 dark:text-brand-400 shrink-0" />
               <p className="text-xs text-brand-700 dark:text-brand-400">
-                Auto-filled from <span className="font-semibold">{detail.id}</span> — edit any field if needed.
+                Auto-filled from <span className="font-semibold">{detail.id}</span>. Company Type and remaining fields to be completed by the owner.
               </p>
             </div>
           )}
@@ -662,23 +697,86 @@ function CompanySetupModal({ loginForm, detail, onConfirm, onBack, onClose, subm
                 <LuBuilding2 className="w-3.5 h-3.5 text-brand-500 dark:text-brand-400" />
               </div>
               <h4 className="text-sm font-semibold text-gray-900 dark:text-white">Company Information</h4>
-              <span className="text-xs text-gray-400 ml-1">— edit if needed</span>
+              <span className="text-xs text-gray-400 ml-1">— auto-filled fields are editable</span>
             </div>
 
             <div className="grid grid-cols-1 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Company Name <span className="text-error-500">*</span></label>
-                <input type="text" value={form.companyName} onChange={(e) => set("companyName")(e.target.value)} className={touched && errors.companyName ? inputErrCls : inputCls} />
-                {touched && errors.companyName && <p className="mt-1 text-xs text-error-500">{errors.companyName}</p>}
+
+              {/* Row: Company Name + Company Type */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                    Company Name <span className="text-error-500">*</span>
+                    <span className="ml-1.5 text-[10px] text-brand-500 font-normal">auto-filled</span>
+                  </label>
+                  <input type="text" value={form.companyName} onChange={(e) => set("companyName")(e.target.value)} className={touched && errors.companyName ? inputErrCls : inputCls} />
+                  {touched && errors.companyName && <p className="mt-1 text-xs text-error-500">{errors.companyName}</p>}
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                    Company Type <span className="text-error-500">*</span>
+                    <span className="ml-1.5 text-[10px] text-brand-500 font-normal">auto-filled</span>
+                  </label>
+                  <input type="text" value={form.companyType} onChange={(e) => set("companyType")(e.target.value)} placeholder="e.g. Private Limited, LLC…" className={touched && errors.companyType ? inputErrCls : inputCls} />
+                  {touched && errors.companyType && <p className="mt-1 text-xs text-error-500">{errors.companyType}</p>}
+                </div>
               </div>
+
+              {/* Row: Business Registration Number + Status */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                    Business Registration Number
+                    <span className="ml-1.5 text-[10px] text-brand-500 font-normal">auto-filled</span>
+                  </label>
+                  <input type="text" value={form.businessRegistrationNumber} onChange={(e) => set("businessRegistrationNumber")(e.target.value)} placeholder="e.g. 12345678-000-01-26-5" className={inputCls} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                    Status
+                    <span className="ml-1.5 text-[10px] text-brand-500 font-normal">auto-filled</span>
+                  </label>
+                  <input type="text" value={form.status} onChange={(e) => set("status")(e.target.value)} placeholder="e.g. pending, completed…" className={inputCls} />
+                </div>
+              </div>
+
+              {/* Incorporation Date */}
               <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Nature of Business <span className="text-error-500">*</span></label>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                  Incorporation Date
+                </label>
+                <DatePicker
+                  id="company-setup-incorporation-date"
+                  mode="single"
+                  placeholder="Select incorporation date"
+                  defaultDate={form.incorporationDate || undefined}
+                  onChange={(dates) => {
+                    const d = dates[0];
+                    if (d) {
+                      const iso = d.toISOString().split("T")[0];
+                      setForm((p) => ({ ...p, incorporationDate: iso }));
+                    }
+                  }}
+                />
+              </div>
+
+              {/* Nature of Business */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                  Nature of Business <span className="text-error-500">*</span>
+                  <span className="ml-1.5 text-[10px] text-brand-500 font-normal">auto-filled</span>
+                </label>
                 <textarea value={form.businessNature} onChange={(e) => set("businessNature")(e.target.value)} rows={2} className={(touched && errors.businessNature ? inputErrCls : inputCls) + " resize-none"} />
                 {touched && errors.businessNature && <p className="mt-1 text-xs text-error-500">{errors.businessNature}</p>}
               </div>
+
+              {/* Business Email + Phone */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Business Email <span className="text-error-500">*</span></label>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                    Business Email <span className="text-error-500">*</span>
+                    <span className="ml-1.5 text-[10px] text-brand-500 font-normal">auto-filled</span>
+                  </label>
                   <div className="relative">
                     <LuMail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                     <input type="email" value={form.businessEmail} onChange={(e) => set("businessEmail")(e.target.value)} className={(touched && errors.businessEmail ? inputErrCls : inputCls) + " pl-9"} />
@@ -686,7 +784,10 @@ function CompanySetupModal({ loginForm, detail, onConfirm, onBack, onClose, subm
                   {touched && errors.businessEmail && <p className="mt-1 text-xs text-error-500">{errors.businessEmail}</p>}
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Phone Number <span className="text-error-500">*</span></label>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                    Phone Number <span className="text-error-500">*</span>
+                    <span className="ml-1.5 text-[10px] text-brand-500 font-normal">auto-filled</span>
+                  </label>
                   <div className="relative">
                     <LuPhone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                     <input type="tel" value={form.phoneNumber} onChange={(e) => set("phoneNumber")(e.target.value)} className={(touched && errors.phoneNumber ? inputErrCls : inputCls) + " pl-9"} />
@@ -694,63 +795,29 @@ function CompanySetupModal({ loginForm, detail, onConfirm, onBack, onClose, subm
                   {touched && errors.phoneNumber && <p className="mt-1 text-xs text-error-500">{errors.phoneNumber}</p>}
                 </div>
               </div>
+
+              {/* Registered Office Address */}
               <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Registered Office Address <span className="text-error-500">*</span></label>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                  Registered Office Address <span className="text-error-500">*</span>
+                  <span className="ml-1.5 text-[10px] text-brand-500 font-normal">auto-filled</span>
+                </label>
                 <div className="relative">
                   <LuMapPin className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
                   <textarea value={form.registeredOfficeAddress} onChange={(e) => set("registeredOfficeAddress")(e.target.value)} rows={2} className={(touched && errors.registeredOfficeAddress ? inputErrCls : inputCls) + " resize-none pl-9"} />
                 </div>
                 {touched && errors.registeredOfficeAddress && <p className="mt-1 text-xs text-error-500">{errors.registeredOfficeAddress}</p>}
               </div>
+
+              {/* Country of Incorporation */}
               <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Directors <span className="text-error-500">*</span></label>
-                <textarea value={form.directors} onChange={(e) => set("directors")(e.target.value)} rows={2} placeholder="e.g. John Smith, Jane Doe" className={(touched && errors.directors ? inputErrCls : inputCls) + " resize-none"} />
-                {touched && errors.directors && <p className="mt-1 text-xs text-error-500">{errors.directors}</p>}
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                  Country of Incorporation
+                  <span className="ml-1.5 text-[10px] text-brand-500 font-normal">auto-filled</span>
+                </label>
+                <input type="text" value={form.countryOfIncorporation} onChange={(e) => set("countryOfIncorporation")(e.target.value)} placeholder="e.g. Hong Kong" className={inputCls} />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Shareholders with Shareholding % <span className="text-error-500">*</span></label>
-                <div className="space-y-2">
-                  {form.shareholders.map((s, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={s.name}
-                        onChange={(e) => updateShareholder(i, "name", e.target.value)}
-                        placeholder="Shareholder name"
-                        className={`${touched && !s.name.trim() ? inputErrCls : inputCls} flex-1`}
-                      />
-                      <div className="relative w-28 shrink-0">
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          value={s.percentage}
-                          onChange={(e) => updateShareholder(i, "percentage", e.target.value)}
-                          placeholder="0"
-                          className={`${inputCls} w-full pr-7`}
-                        />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">%</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => removeShareholder(i)}
-                        disabled={form.shareholders.length === 1}
-                        className="p-1.5 text-gray-400 hover:text-error-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
-                      >
-                        <LuX className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={addShareholder}
-                    className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 transition-colors"
-                  >
-                    <LuPlus className="w-3.5 h-3.5" /> Add Shareholder
-                  </button>
-                </div>
-                {touched && errors.shareholders && <p className="mt-1 text-xs text-error-500">{errors.shareholders}</p>}
-              </div>
+
             </div>
           </div>
 
@@ -782,7 +849,7 @@ function CompanySetupModal({ loginForm, detail, onConfirm, onBack, onClose, subm
             </div>
             <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
               <LuBuilding2 className="w-3.5 h-3.5 text-brand-500 shrink-0" />
-              <span>Company: <span className="font-medium text-gray-900 dark:text-white">{form.companyName || "—"}</span></span>
+              <span>Company: <span className="font-medium text-gray-900 dark:text-white">{form.companyName || "—"}</span>{form.companyType ? ` · ${form.companyType}` : ""}</span>
             </div>
             <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
               <LuFileText className="w-3.5 h-3.5 text-brand-500 shrink-0" />
@@ -798,7 +865,7 @@ function CompanySetupModal({ loginForm, detail, onConfirm, onBack, onClose, subm
           </button>
           <button onClick={handleConfirm} disabled={submitting} className="inline-flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-success-500 hover:bg-success-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors">
             {submitting
-              ? <><LuRefreshCw className="w-4 h-4 animate-spin" /> Creating…</>
+              ? <><LuRefreshCw className="w-4 h-4 animate-spin" /> {submittingLabel || "Creating..."}</>
               : <><LuCheck className="w-4 h-4" /> Create Customer</>
             }
           </button>
@@ -813,34 +880,85 @@ function CompanySetupModal({ loginForm, detail, onConfirm, onBack, onClose, subm
 export default function CustomerManagementPage() {
   const router = useRouter();
 
+  const [customers, setCustomers] = useState<CustomerListItem[]>([]);
+  const [tableLoading, setTableLoading] = useState(true);
+  const [tableError, setTableError] = useState("");
   const [searchInput,   setSearchInput]   = useState("");
   const [statusFilter,  setStatusFilter]  = useState("");
   const [countryFilter, setCountryFilter] = useState("");
   const [page, setPage] = useState(1);
+  const [serverTotal, setServerTotal] = useState(0);
+  const [refreshTableKey, setRefreshTableKey] = useState(0);
 
   // Add Customer modal
   const [addStep,       setAddStep]       = useState<null | 1 | 2>(null);
   const [addLoginForm,  setAddLoginForm]  = useState<CreateLoginForm | null>(null);
   const [addDetail,     setAddDetail]     = useState<ApiRegistrationDetail | null>(null);
   const [addSubmitting, setAddSubmitting] = useState(false);
+  const [addSubmittingLabel, setAddSubmittingLabel] = useState("");
 
-  const filtered = useMemo(() => {
-    const q = searchInput.toLowerCase().trim();
-    return DUMMY_CUSTOMERS.filter((c) => {
-      const matchSearch =
-        !q ||
-        `${c.firstName} ${c.lastName}`.toLowerCase().includes(q) ||
-        c.email.toLowerCase().includes(q) ||
-        c.companyName.toLowerCase().includes(q);
-      const matchStatus  = !statusFilter  || c.registrationStatus === statusFilter;
-      const matchCountry = !countryFilter || (c.countryOfIncorporation ?? "").toLowerCase().includes(countryFilter.toLowerCase().trim());
-      return matchSearch && matchStatus && matchCountry;
-    });
-  }, [searchInput, statusFilter, countryFilter]);
+  useEffect(() => {
+    let cancelled = false;
 
-  const total      = filtered.length;
+    async function loadCustomers() {
+      setTableLoading(true);
+      setTableError("");
+      try {
+        const params = new URLSearchParams();
+        params.set("page", String(page));
+        params.set("limit", String(PAGE_SIZE));
+        params.set("sortBy", "createdAt");
+        params.set("sortOrder", "desc");
+        if (searchInput.trim()) params.set("search", searchInput.trim());
+        if (statusFilter) params.set("registrationStatus", statusFilter);
+        if (countryFilter.trim()) params.set("country", countryFilter.trim());
+
+        const res = await authFetch(`${API_BASE_URL}/api/v1/admin/customers?${params.toString()}`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || data.message || "Failed to load customers");
+
+        const rowsRaw =
+          data.customers ??
+          data.data?.customers ??
+          data.data?.items ??
+          data.data ??
+          data.items ??
+          [];
+
+        const rows = Array.isArray(rowsRaw) ? rowsRaw : [];
+        const mapped = rows.map((row, index) =>
+          mapAdminCustomerRow(row as AdminCustomerListApiRow, (page - 1) * PAGE_SIZE + index + 1)
+        );
+
+        const totalValue = Number(
+          data.total ??
+          data.meta?.total ??
+          data.pagination?.total ??
+          mapped.length
+        );
+
+        if (!cancelled) {
+          setCustomers(mapped);
+          setServerTotal(Number.isFinite(totalValue) ? totalValue : mapped.length);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setTableError(err instanceof Error ? err.message : "Failed to load customers");
+          setCustomers([]);
+          setServerTotal(0);
+        }
+      } finally {
+        if (!cancelled) setTableLoading(false);
+      }
+    }
+
+    loadCustomers();
+    return () => { cancelled = true; };
+  }, [page, searchInput, statusFilter, countryFilter, refreshTableKey]);
+
+  const total      = serverTotal;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const paginated  = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const paginated  = customers;
   const hasActiveFilters = searchInput || statusFilter || countryFilter;
 
   function clearFilters() {
@@ -851,14 +969,57 @@ export default function CustomerManagementPage() {
     setter(v); setPage(1);
   }
 
-  function handleAddCustomerConfirm(companySetup: CompanySetupForm) {
+  async function handleAddCustomerConfirm(companySetup: CompanySetupForm) {
+    if (!addLoginForm) return;
+
     setAddSubmitting(true);
-    setTimeout(() => {
-      setAddSubmitting(false);
+    setAddSubmittingLabel("Starting...");
+
+    try {
+      const result = await runCustomerOnboardingFlow({
+        registrationId: addLoginForm.registrationId,
+        login: {
+          firstName: addLoginForm.firstName,
+          lastName: addLoginForm.lastName,
+          email: addLoginForm.email,
+          password: addLoginForm.password,
+        },
+        companyProfile: {
+          registrationId: addLoginForm.registrationId,
+          companyName: companySetup.companyName,
+          businessNature: companySetup.businessNature,
+          businessEmail: companySetup.businessEmail,
+          phoneNumber: companySetup.phoneNumber,
+          registeredOfficeAddress: companySetup.registeredOfficeAddress,
+          companyType: companySetup.companyType,
+          countryOfIncorporation: companySetup.countryOfIncorporation,
+          businessRegistrationNumber: companySetup.businessRegistrationNumber,
+          incorporationDate: companySetup.incorporationDate || undefined,
+        },
+        documents: companySetupDocsToUpload(companySetup, addLoginForm.registrationId),
+        registrationStatusToSet: normalizeRegistrationStatus(companySetup.status),
+        onProgress: setAddSubmittingLabel,
+      });
+
       setAddStep(null);
       setAddLoginForm(null);
-      console.log("Customer created", { login: addLoginForm, company: companySetup });
-    }, 1200);
+      setAddDetail(null);
+      setRefreshTableKey((k) => k + 1);
+      alert(
+        `Customer created successfully.\nCustomer ID: ${result.customerId}\nRegistration linked: ${result.registrationLinked ? "Yes" : "No"}\nCompany profile saved: ${result.companyProfileSaved ? "Yes" : "No"}\nDocuments uploaded: ${result.uploadedDocuments.length}`
+      );
+    } catch (err) {
+      if (err instanceof CustomerOnboardingFlowError) {
+        alert(
+          `Customer onboarding failed during ${err.step}.\n${err.message}\n\nPartial progress:\nCustomer created: ${err.partialResult.customerId ? `Yes (#${err.partialResult.customerId})` : "No"}\nRegistration linked: ${err.partialResult.registrationLinked ? "Yes" : "No"}\nCompany profile saved: ${err.partialResult.companyProfileSaved ? "Yes" : "No"}\nDocuments uploaded: ${err.partialResult.uploadedDocuments?.length ?? 0}`
+        );
+      } else {
+        alert(err instanceof Error ? err.message : "Failed to create customer");
+      }
+    } finally {
+      setAddSubmitting(false);
+      setAddSubmittingLabel("");
+    }
   }
 
   return (
@@ -931,7 +1092,30 @@ export default function CustomerManagementPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800/80">
-              {paginated.length === 0 ? (
+              {tableLoading ? (
+                <tr>
+                  <td colSpan={9} className="py-16 text-center">
+                    <div className="inline-flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                      <LuRefreshCw className="w-4 h-4 animate-spin" />
+                      Loading customers...
+                    </div>
+                  </td>
+                </tr>
+              ) : tableError ? (
+                <tr>
+                  <td colSpan={9} className="py-16 text-center">
+                    <div className="max-w-xl mx-auto px-4">
+                      <p className="text-sm font-medium text-error-600 dark:text-error-400">{tableError}</p>
+                      <button
+                        onClick={() => setRefreshTableKey((k) => k + 1)}
+                        className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-brand-600 dark:text-brand-400 bg-brand-50 dark:bg-brand-500/10 rounded-lg hover:bg-brand-100 dark:hover:bg-brand-500/20 transition-colors"
+                      >
+                        <LuRefreshCw className="w-3.5 h-3.5" /> Retry
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ) : paginated.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="py-20 text-center">
                     <LuInbox className="w-10 h-10 mx-auto text-gray-300 dark:text-gray-600 mb-3" />
@@ -1040,7 +1224,7 @@ export default function CustomerManagementPage() {
       {addStep === 1 && (
         <CreateLoginModal
           onNext={(form, detail) => { setAddLoginForm(form); setAddDetail(detail); setAddStep(2); }}
-          onClose={() => { setAddStep(null); setAddLoginForm(null); setAddDetail(null); }}
+          onClose={() => { setAddStep(null); setAddLoginForm(null); setAddDetail(null); setAddSubmittingLabel(""); }}
         />
       )}
       {addStep === 2 && addLoginForm && (
@@ -1049,8 +1233,9 @@ export default function CustomerManagementPage() {
           detail={addDetail}
           onConfirm={handleAddCustomerConfirm}
           onBack={() => setAddStep(1)}
-          onClose={() => { setAddStep(null); setAddLoginForm(null); setAddDetail(null); }}
+          onClose={() => { setAddStep(null); setAddLoginForm(null); setAddDetail(null); setAddSubmittingLabel(""); }}
           submitting={addSubmitting}
+          submittingLabel={addSubmittingLabel}
         />
       )}
     </div>

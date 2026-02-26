@@ -33,7 +33,7 @@ import {
   LuUserCog,
 } from "react-icons/lu";
 import SidebarWidget from "./SidebarWidget";
-import { useRole } from "@/context/RoleContext";
+import { useAuth } from "@/context/AuthContext";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PermissionModule } from "@/types/permissions";
 
@@ -178,18 +178,17 @@ const adminNavItems: NavItem[] = [
 
 const AppSidebar: React.FC = () => {
   const { isExpanded, isMobileOpen, isHovered, setIsHovered } = useSidebar();
-  const { role } = useRole();
+  const { user } = useAuth();
   const pathname = usePathname();
   const { filterByPermission } = usePermissions();
 
-  // For admin users, filter nav items based on their permissions
-  // For regular users, show all user nav items
+  // Nav items determined by server-authoritative user.type
   const navItems = useMemo(() => {
-    if (role === "admin") {
+    if (user?.type === "ADMIN") {
       return filterByPermission(adminNavItems);
     }
     return userNavItems;
-  }, [role, filterByPermission]);
+  }, [user?.type, filterByPermission]);
 
   const renderMenuItems = (
     navItems: NavItem[],

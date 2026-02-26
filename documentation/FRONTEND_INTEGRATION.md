@@ -12,20 +12,26 @@
 1. [Quick Start](#1-quick-start)
 2. [Authentication Flow](#2-authentication-flow)
 3. [Token Management](#3-token-management)
-4. [Permission System](#4-permission-system)
-5. [API Reference](#5-api-reference)
-   - [Public Routes](#51-public-routes)
-   - [Auth Routes](#52-auth-routes)
-   - [Badge Routes](#53-badge-routes)
-   - [User Routes](#54-user-routes)
-   - [Ticket Routes](#55-ticket-routes)
-   - [Registration Routes](#56-registration-routes)
-6. [Error Handling](#6-error-handling)
-7. [HTTP Status Codes](#7-http-status-codes)
-8. [All 32 Permissions Reference](#8-all-32-permissions-reference)
-9. [Data Models](#9-data-models)
-10. [Implementation Examples](#10-implementation-examples)
-11. [Environment Setup](#11-environment-setup)
+4. [User Types](#4-user-types)
+5. [Permission System](#5-permission-system)
+6. [API Reference](#6-api-reference)
+   - [Public Routes](#61-public-routes)
+   - [Auth Routes](#62-auth-routes)
+   - [User Routes](#63-user-routes)
+   - [Badge Routes](#64-badge-routes)
+   - [Ticket Routes](#65-ticket-routes)
+   - [Registration Routes (Admin)](#66-registration-routes-admin)
+   - [Customer Portal — My Registrations](#67-customer-portal--my-registrations)
+   - [Customer Portal — Service Requests](#68-customer-portal--service-requests)
+   - [Admin Customer Management](#69-admin-customer-management)
+   - [File Upload Routes](#610-file-upload-routes)
+7. [Error Handling](#7-error-handling)
+8. [HTTP Status Codes](#8-http-status-codes)
+9. [All 32 Permissions Reference](#9-all-32-permissions-reference)
+10. [Data Models](#10-data-models)
+11. [Implementation Examples](#11-implementation-examples)
+12. [Environment Setup](#12-environment-setup)
+13. [Route Summary Table](#appendix--route-summary-table)
 
 ---
 
@@ -56,8 +62,10 @@ Response:
     "id": 1,
     "email": "admin@mutetaxes.com",
     "name": "Super Admin",
+    "type": "ADMIN",
     "permissions": ["REGISTRATIONS_READ", "BADGE_CREATION_READ", "..."],
-    "role": "admin"
+    "role": "admin",
+    "dashboardPath": "/admin/dashboard"
   }
 }
 ```
@@ -129,7 +137,7 @@ The backend uses a two-token JWT strategy.
 | accessToken  | 15 min   | `900` (seconds)   | Authenticate every API request           |
 | refreshToken | 7 days   | `604800` (seconds)| Obtain a new access token after expiry   |
 
-> **Side effect:** Every successful login also updates the user's `lastActive` timestamp in the database, which is visible in `GET /users`.
+> **Side effect:** Every successful login also updates the user's `lastActive` timestamp in the database.
 
 > **Inactive users:** If a user's `active` field is `false`, login returns `401` with message `"User account is inactive"`.
 
@@ -203,11 +211,33 @@ The decoded access token contains:
 }
 ```
 
-> The backend validates the token and fetches the full user (with permissions) from the database on every protected request. You do not need to decode the JWT on the frontend — use the `permissions` array returned at login or from `GET /auth/me/permissions`.
+> The backend validates the token and fetches the full user (with permissions) from the database on every protected request. Use the `permissions` array returned at login or from `GET /auth/me/permissions`.
 
 ---
 
-## 4. Permission System
+## 4. User Types
+
+The system now has **two distinct user types**. Every user has a `type` field that determines which parts of the API they can access.
+
+| Type       | Description                                              | Dashboard Path       |
+|------------|----------------------------------------------------------|----------------------|
+| `ADMIN`    | Internal staff. Manage registrations, users, badges, etc.| `/admin/dashboard`   |
+| `CUSTOMER` | External clients. View own registrations, service requests| `/customer/dashboard`|
+
+> The `type` field is returned in the login response as `user.type`. Use `user.dashboardPath` to redirect after login.
+
+### Type-Restricted Routes
+
+Some routes are **type-gated** in addition to being permission-gated:
+
+- Routes under `/api/v1/admin/*` → `ADMIN` only
+- Routes under `/api/v1/my-registrations` → `CUSTOMER` only
+- Routes under `/api/v1/customer/service-requests` → `CUSTOMER` only
+- Ticket GET endpoints → both types (customers see only their own tickets)
+
+---
+
+## 5. Permission System
 
 ### How Permissions Work
 
@@ -224,7 +254,7 @@ User
 
 ### Checking Permissions on the Frontend
 
-After login, the `user.permissions` array contains all the user's permission codes as strings:
+After login, the `user.permissions` array contains all permission codes:
 
 ```json
 {
@@ -270,13 +300,13 @@ function PermissionGate({
 </PermissionGate>
 ```
 
-> **Important:** Frontend permission checks are for UI/UX only. The backend enforces permissions on every request independently. Always guard sensitive UI behind both a permission check AND expect proper backend 403 responses.
+> **Important:** Frontend permission checks are for UI/UX only. The backend enforces permissions on every request independently.
 
 ---
 
-## 5. API Reference
+## 6. API Reference
 
-### 5.1 Public Routes
+### 6.1 Public Routes
 
 ---
 
@@ -293,8 +323,18 @@ Health check. No authentication required.
 
 ---
 
+#### `GET /health`
+Simple health status. No authentication required.
+
+**Response `200`:**
+```json
+{ "status": "ok" }
+```
+
+---
+
 #### `GET /permissions`
-Returns all 32 available permissions. No authentication required. Use this to populate permission selection UIs (e.g., badge creation form).
+Returns all 32 available permissions. No authentication required. Use to populate permission selection UIs.
 
 **Response `200`:**
 ```json
@@ -314,7 +354,7 @@ Returns all 32 available permissions. No authentication required. Use this to po
 
 ---
 
-### 5.2 Auth Routes
+### 6.2 Auth Routes
 
 ---
 
@@ -348,20 +388,24 @@ Authenticate a user and receive tokens.
     "id": 1,
     "email": "admin@mutetaxes.com",
     "name": "Super Admin",
+    "type": "ADMIN",
     "permissions": ["REGISTRATIONS_READ", "BADGE_CREATION_READ"],
-    "role": "admin"
+    "role": "admin",
+    "dashboardPath": "/admin/dashboard"
   }
 }
 ```
 
 | Field                  | Type           | Description                                                |
-|------------------------|----------------|------------------------------------------------------------|
+|------------------------|----------------|-------------------------------------------------------------|
 | accessToken            | string         | JWT valid for 15 minutes                                   |
 | refreshToken           | string         | JWT valid for 7 days                                       |
 | expiresIn              | number         | Access token lifetime in seconds (`900`)                   |
 | refreshTokenExpiresIn  | number         | Refresh token lifetime in seconds (`604800`)               |
-| user.permissions       | string[]       | Array of permission code strings (union of all badges)     |
+| user.type              | `ADMIN` \| `CUSTOMER` | User type — determines dashboard route              |
+| user.permissions       | string[]       | Array of permission code strings                           |
 | user.role              | string \| null | Badge `name` of the user's first badge, or `null`          |
+| user.dashboardPath     | string         | `/admin/dashboard` or `/customer/dashboard`                |
 
 **Error responses:**
 ```json
@@ -392,10 +436,6 @@ Exchange a valid refresh token for a new access token.
 }
 ```
 
-| Field        | Type   | Required | Description            |
-|--------------|--------|----------|------------------------|
-| refreshToken | string | Yes      | The current refresh token |
-
 **Response `200`:**
 ```json
 {
@@ -419,16 +459,34 @@ Exchange a valid refresh token for a new access token.
 
 ---
 
-#### `GET /auth/me/permissions`
-Returns the full permission list for the currently authenticated user. Use this to re-sync permissions after session restore.
+#### `GET /auth/me`
+Get the full profile of the currently authenticated user including type, permissions, and badges.
 
 **Auth required:** Yes — Bearer token
 
-**Request:**
-```http
-GET /auth/me/permissions
-Authorization: Bearer <accessToken>
+**Response `200`:**
+```json
+{
+  "id": 1,
+  "email": "admin@mutetaxes.com",
+  "name": "Super Admin",
+  "type": "ADMIN",
+  "permissions": ["REGISTRATIONS_READ", "BADGE_CREATION_READ"],
+  "badges": [
+    { "id": 1, "name": "admin", "displayName": "Administrator", "color": "#EF4444" }
+  ],
+  "dashboardPath": "/admin/dashboard"
+}
 ```
+
+> Use this endpoint on session restore (page refresh) to re-sync user data.
+
+---
+
+#### `GET /auth/me/permissions`
+Returns the full permission list for the currently authenticated user.
+
+**Auth required:** Yes — Bearer token
 
 **Response `200`:**
 ```json
@@ -438,17 +496,12 @@ Authorization: Bearer <accessToken>
       "id": 1,
       "code": "REGISTRATIONS_READ",
       "displayName": "View Registrations"
-    },
-    {
-      "id": 9,
-      "code": "BADGE_CREATION_READ",
-      "displayName": "Read Badge Creation"
     }
   ]
 }
 ```
 
-> This endpoint deduplicates permissions automatically, so if a user has multiple badges with overlapping permissions, each permission code appears only once.
+> Deduplicates permissions automatically. If a user has multiple badges with overlapping permissions, each code appears only once.
 
 **Error responses:**
 ```json
@@ -466,13 +519,6 @@ Change the authenticated user's own password.
 
 **Auth required:** Yes — Bearer token
 
-**Request:**
-```http
-PATCH /auth/change-password
-Authorization: Bearer <accessToken>
-Content-Type: application/json
-```
-
 **Request body:**
 ```json
 {
@@ -484,7 +530,7 @@ Content-Type: application/json
 | Field           | Type   | Required | Rules                              |
 |-----------------|--------|----------|------------------------------------|
 | currentPassword | string | Yes      | Must match the user's current password |
-| newPassword     | string | Yes      | Minimum 8 characters. Must differ from current password |
+| newPassword     | string | Yes      | Minimum 8 characters. Must differ from current |
 
 **Response `200`:**
 ```json
@@ -514,14 +560,191 @@ Content-Type: application/json
 
 ---
 
-### 5.3 Badge Routes
+### 6.3 User Routes
 
-All badge routes require authentication. Individual routes additionally require specific permissions as noted.
+All user routes require authentication. Individual routes require specific `USER_MANAGEMENT_*` permissions.
+
+> **Note:** `POST /users/create` (old public route) has been removed. User creation is now `POST /users` and requires `USER_MANAGEMENT_CREATE`.
+
+---
+
+#### `POST /users`
+Create a new user.
+
+**Auth required:** Yes
+**Permission required:** `USER_MANAGEMENT_CREATE`
+
+**Request body:**
+```json
+{
+  "name": "Jane Doe",
+  "email": "jane.doe@example.com",
+  "password": "SecurePass123!",
+  "badgeId": 2,
+  "type": "CUSTOMER",
+  "active": true
+}
+```
+
+| Field    | Type              | Required | Rules                                          |
+|----------|-------------------|----------|------------------------------------------------|
+| name     | string            | Yes      | Non-empty string                               |
+| email    | string            | Yes      | Valid email format, unique                     |
+| password | string            | Yes      | Non-empty. Will be bcrypt-hashed (10 rounds)   |
+| badgeId  | number            | Yes      | Must be an existing badge ID                   |
+| type     | `ADMIN` \| `CUSTOMER` | No  | Default: `CUSTOMER`                            |
+| active   | boolean           | No       | `true` (default) or `false`                    |
+
+**Response `201`:**
+```json
+{
+  "success": true,
+  "message": "User created successfully",
+  "user": {
+    "id": 5,
+    "name": "Jane Doe",
+    "email": "jane.doe@example.com",
+    "type": "CUSTOMER",
+    "active": "active",
+    "role": "Content Editor"
+  }
+}
+```
+
+**Error responses:**
+```json
+// 400 — Validation errors
+{ "success": false, "error": "Name is required and must be a non-empty string" }
+{ "success": false, "error": "Email must be a valid email address" }
+{ "success": false, "error": "Email is already in use" }
+{ "success": false, "error": "Badge ID (role) is required and must be a number" }
+{ "success": false, "error": "Active must be a boolean value" }
+{ "success": false, "error": "Invalid badge ID - badge does not exist" }
+
+// 403 — Only admins can create admin users
+{ "success": false, "error": "Only administrators can create admin users" }
+```
+
+---
+
+#### `GET /users`
+List all users. Supports rich filtering.
+
+**Auth required:** Yes
+**Permission required:** `USER_MANAGEMENT_READ`
+
+**Query parameters:**
+
+| Parameter             | Type    | Description                                              |
+|-----------------------|---------|----------------------------------------------------------|
+| type                  | string  | Filter: `ADMIN` or `CUSTOMER`                           |
+| active                | string  | Filter: `true` / `false` or `active` / `inactive`       |
+| search                | string  | Search across name and email                             |
+| badgeId               | integer | Filter by badge ID                                       |
+| badgeName             | string  | Filter by badge name                                     |
+| country               | string  | Filter by country (derived from linked registrations)    |
+| registrationStatus    | string  | Filter by linked registration status                     |
+| hasLinkedRegistration | boolean | `true` = only users with a linked registration           |
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "users": [
+    {
+      "id": 1,
+      "name": "Super Admin",
+      "email": "admin@mutetaxes.com",
+      "type": "ADMIN",
+      "active": "active",
+      "role": "Administrator",
+      "lastActive": "2026-02-16T12:30:00.000Z"
+    },
+    {
+      "id": 2,
+      "name": "Jane Doe",
+      "email": "jane.doe@example.com",
+      "type": "CUSTOMER",
+      "active": "inactive",
+      "role": "Content Editor",
+      "lastActive": null
+    }
+  ]
+}
+```
+
+| Field      | Type           | Description                                                              |
+|------------|----------------|--------------------------------------------------------------------------|
+| type       | string         | `"ADMIN"` or `"CUSTOMER"`                                                |
+| active     | string         | `"active"` or `"inactive"` — stringified boolean                        |
+| role       | string         | Badge `displayName`(s), comma-joined if user has multiple badges         |
+| lastActive | string \| null | ISO 8601 timestamp of last login. `null` if user has never logged in     |
+
+---
+
+#### `PATCH /users/:id`
+Update a user's details. All fields optional.
+
+**Auth required:** Yes
+**Permission required:** `USER_MANAGEMENT_UPDATE`
+
+**Request body** (all fields optional, at least one required):
+```json
+{
+  "name": "Jane Smith",
+  "email": "jane.smith@example.com",
+  "password": "NewSecurePass123!",
+  "badgeId": 3,
+  "type": "CUSTOMER",
+  "active": false
+}
+```
+
+> **Note on `badgeId`:** Providing a `badgeId` completely replaces the user's current badge assignment.
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "message": "User updated successfully",
+  "user": {
+    "id": 2,
+    "name": "Jane Smith",
+    "email": "jane.smith@example.com",
+    "type": "CUSTOMER",
+    "active": "inactive",
+    "role": "Senior Editor"
+  }
+}
+```
+
+---
+
+#### `DELETE /users/:id`
+Permanently delete a user. Cascades gracefully:
+- Badge assignments removed
+- User's documents deleted
+- Registrations linked to this user have `clientId` set to `null`
+
+**Auth required:** Yes
+**Permission required:** `USER_MANAGEMENT_DELETE`
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "message": "User deleted successfully"
+}
+```
+
+---
+
+### 6.4 Badge Routes
 
 ---
 
 #### `GET /badges`
-List all badges with their associated permissions.
+List all badges with their permissions.
 
 **Auth required:** Yes
 **Permission required:** `BADGE_CREATION_READ`
@@ -547,15 +770,6 @@ List all badges with their associated permissions.
 }
 ```
 
-**Error responses:**
-```json
-// 401 — Not authenticated
-{ "error": "Unauthorized", "message": "Authorization header with Bearer token is required" }
-
-// 403 — Missing BADGE_CREATION_READ permission
-{ "error": "Forbidden", "message": "Missing required permission" }
-```
-
 ---
 
 #### `GET /badges/:id`
@@ -563,12 +777,6 @@ Get a single badge by ID.
 
 **Auth required:** Yes
 **Permission required:** `BADGE_CREATION_READ`
-
-**Path parameters:**
-
-| Parameter | Type    | Description |
-|-----------|---------|-------------|
-| id        | integer | Badge ID    |
 
 **Response `200`:**
 ```json
@@ -587,19 +795,10 @@ Get a single badge by ID.
 }
 ```
 
-**Error responses:**
-```json
-// 400 — Invalid ID
-{ "success": false, "error": "Invalid badge ID" }
-
-// 404 — Badge not found
-{ "success": false, "error": "Badge not found" }
-```
-
 ---
 
 #### `POST /badges`
-Create a new badge with optional permission assignments.
+Create a new badge.
 
 **Auth required:** Yes
 **Permission required:** `BADGE_CREATION_CREATE`
@@ -617,7 +816,7 @@ Create a new badge with optional permission assignments.
 | Field         | Type             | Required | Rules                                      |
 |---------------|------------------|----------|--------------------------------------------|
 | name          | string           | Yes      | Unique, non-empty. Used as identifier.     |
-| displayName   | string           | Yes      | Human-readable label shown in the UI.     |
+| displayName   | string           | Yes      | Human-readable label.                     |
 | color         | string           | No       | Hex color code. Default: `#3B82F6`         |
 | permissionIds | array of numbers | No       | IDs from `GET /permissions`. Default: none |
 
@@ -639,36 +838,15 @@ Create a new badge with optional permission assignments.
 }
 ```
 
-**Error responses:**
-```json
-// 400 — Validation failure
-{ "success": false, "error": "Name is required and must be a non-empty string" }
-
-// 400 — Name already taken
-{ "success": false, "error": "A badge with this name already exists" }
-
-// 400 — Invalid permission IDs
-{ "success": false, "error": "Some permission IDs are invalid" }
-
-// 500 — Server error
-{ "success": false, "error": "Failed to create badge" }
-```
-
 ---
 
 #### `PATCH /badges/:id`
-Update an existing badge. You can update display name, color, and/or permissions.
+Update a badge.
 
 **Auth required:** Yes
 **Permission required:** `BADGE_CREATION_UPDATE`
 
-**Path parameters:**
-
-| Parameter | Type    | Description |
-|-----------|---------|-------------|
-| id        | integer | Badge ID    |
-
-**Request body** (all fields optional, but at least one required):
+**Request body** (all optional, at least one required):
 ```json
 {
   "displayName": "Senior Content Editor",
@@ -677,49 +855,12 @@ Update an existing badge. You can update display name, color, and/or permissions
 }
 ```
 
-| Field         | Type             | Required | Rules                                            |
-|---------------|------------------|----------|--------------------------------------------------|
-| displayName   | string           | No       | New human-readable label                         |
-| color         | string           | No       | New hex color code                               |
-| permissionIds | array of numbers | No       | Replaces all existing permissions for this badge |
-
-> **Note:** `permissionIds` is a full replacement — not an append. If you send `permissionIds: [1, 2]`, all other previously assigned permissions are removed.
-
-**Response `200`:**
-```json
-{
-  "success": true,
-  "message": "Badge updated successfully",
-  "badge": {
-    "id": 3,
-    "name": "content-editor",
-    "displayName": "Senior Content Editor",
-    "color": "#8B5CF6",
-    "createdAt": "2024-01-15T12:00:00.000Z",
-    "permissions": [
-      { "id": 1, "code": "REGISTRATIONS_CREATE" },
-      { "id": 2, "code": "REGISTRATIONS_READ" }
-    ]
-  }
-}
-```
-
-**Error responses:**
-```json
-// 400 — No fields to update
-{ "success": false, "error": "At least one field must be provided to update" }
-
-// 400 — Invalid color format
-{ "success": false, "error": "Color must be a valid hex color code" }
-
-// 404 — Badge not found
-{ "success": false, "error": "Badge not found" }
-```
+> **Note:** `permissionIds` is a full replacement — all previous permissions are removed.
 
 ---
 
 #### `DELETE /badges/:id`
-Delete a badge permanently.
+Delete a badge.
 
 **Auth required:** Yes
 **Permission required:** `BADGE_CREATION_DELETE`
@@ -734,19 +875,14 @@ Delete a badge permanently.
 
 **Error responses:**
 ```json
-// 400 — Badge has users assigned, cannot delete
+// 400 — Badge has users assigned
 { "success": false, "error": "Cannot delete badge that is assigned to users" }
-
-// 404 — Badge not found
-{ "success": false, "error": "Badge not found" }
 ```
-
-> Before deleting a badge, you must reassign all users who hold it to a different badge, or delete those users.
 
 ---
 
 #### `GET /badges/:id/permissions`
-Returns a full permissions map for a specific badge — every permission as a key with `true` or `false` indicating whether the badge has it. Useful for rendering a permission toggle UI.
+Returns a full permissions map for a badge — every permission as a key with `true` or `false`. Use for rendering a permission toggle UI.
 
 **Auth required:** Yes
 **Permission required:** `BADGE_CREATION_UPDATE`
@@ -767,291 +903,44 @@ Returns a full permissions map for a specific badge — every permission as a ke
     "USER_MANAGEMENT_READ": true,
     "USER_MANAGEMENT_UPDATE": true,
     "USER_MANAGEMENT_DELETE": true,
-    "PAYMENTS_CREATE": true,
-    "PAYMENTS_READ": true,
-    "PAYMENTS_UPDATE": true,
-    "PAYMENTS_DELETE": true,
-    "COMPLIANCE_CREATE": false,
-    "COMPLIANCE_READ": false,
-    "COMPLIANCE_UPDATE": false,
-    "COMPLIANCE_DELETE": false,
-    "REPORTS_CREATE": false,
-    "REPORTS_READ": false,
-    "REPORTS_UPDATE": false,
-    "REPORTS_DELETE": false,
-    "MESSAGES_CREATE": false,
-    "MESSAGES_READ": false,
-    "MESSAGES_UPDATE": false,
-    "MESSAGES_DELETE": false,
+    "BADGE_CREATION_CREATE": true,
+    "BADGE_CREATION_READ": true,
+    "BADGE_CREATION_UPDATE": true,
+    "BADGE_CREATION_DELETE": true,
     "SUPPORT_TICKETS_CREATE": false,
     "SUPPORT_TICKETS_READ": false,
     "SUPPORT_TICKETS_UPDATE": false,
     "SUPPORT_TICKETS_DELETE": false,
-    "BADGE_CREATION_CREATE": true,
-    "BADGE_CREATION_READ": true,
-    "BADGE_CREATION_UPDATE": true,
-    "BADGE_CREATION_DELETE": true
+    "COMPLIANCE_CREATE": false,
+    "COMPLIANCE_READ": false
   }
 }
 ```
 
 ---
 
-### 5.4 User Routes
+### 6.5 Ticket Routes
 
-All four user routes are **protected** and require authentication + a specific `USER_MANAGEMENT_*` permission.
+All ticket routes require authentication and a `SUPPORT_TICKETS_*` permission.
 
-> **Breaking change from earlier version:** `POST /users/create` (public) has been removed. User creation is now `POST /users` and requires the `USER_MANAGEMENT_CREATE` permission.
-
----
-
-#### `POST /users`
-Create a new user with a name, email, password, badge (role), and optional active status.
-
-**Auth required:** Yes
-**Permission required:** `USER_MANAGEMENT_CREATE`
-
-**Request body:**
-```json
-{
-  "name": "Jane Doe",
-  "email": "jane.doe@example.com",
-  "password": "SecurePass123!",
-  "badgeId": 2,
-  "active": true
-}
-```
-
-| Field    | Type    | Required | Rules                                          |
-|----------|---------|----------|------------------------------------------------|
-| name     | string  | Yes      | Non-empty string                               |
-| email    | string  | Yes      | Valid email format, unique                     |
-| password | string  | Yes      | Non-empty. Will be bcrypt-hashed (10 rounds)   |
-| badgeId  | number  | Yes      | Must be an existing badge ID                   |
-| active   | boolean | No       | `true` (default) or `false`                    |
-
-**Response `201`:**
-```json
-{
-  "success": true,
-  "message": "User created successfully",
-  "user": {
-    "id": 5,
-    "name": "Jane Doe",
-    "email": "jane.doe@example.com",
-    "active": "active",
-    "role": "Content Editor"
-  }
-}
-```
-
-> Note: The response does **not** include the password. `active` is returned as the string `"active"` or `"inactive"`. `role` is the badge's `displayName`.
-
-**Error responses:**
-```json
-// 400 — Validation errors
-{ "success": false, "error": "Name is required and must be a non-empty string" }
-{ "success": false, "error": "Email is required and must be a non-empty string" }
-{ "success": false, "error": "Email must be a valid email address" }
-{ "success": false, "error": "Password is required and must be a non-empty string" }
-{ "success": false, "error": "Badge ID (role) is required and must be a number" }
-{ "success": false, "error": "Active must be a boolean value" }
-{ "success": false, "error": "Email is already in use" }
-{ "success": false, "error": "Invalid badge ID - badge does not exist" }
-
-// 500 — Server error
-{ "success": false, "error": "Internal server error", "message": "Failed to create user" }
-```
-
----
-
-#### `GET /users`
-List all users with their ID, name, email, active status, role (badge display name), and `lastActive` timestamp.
-
-**Auth required:** Yes
-**Permission required:** `USER_MANAGEMENT_READ`
-
-**Response `200`:**
-```json
-{
-  "success": true,
-  "users": [
-    {
-      "id": 1,
-      "name": "Super Admin",
-      "email": "admin@mutetaxes.com",
-      "active": "active",
-      "role": "Administrator",
-      "lastActive": "2026-02-16T12:30:00.000Z"
-    },
-    {
-      "id": 2,
-      "name": "Jane Doe",
-      "email": "jane.doe@example.com",
-      "active": "inactive",
-      "role": "Content Editor",
-      "lastActive": null
-    }
-  ]
-}
-```
-
-**Field descriptions:**
-
-| Field      | Type           | Description                                                              |
-|------------|----------------|--------------------------------------------------------------------------|
-| id         | number         | Unique user ID                                                           |
-| name       | string         | User's full name                                                         |
-| email      | string         | User's email address                                                     |
-| active     | string         | `"active"` or `"inactive"` — stringified boolean                        |
-| role       | string         | Badge `displayName`(s), comma-joined if user has multiple badges         |
-| lastActive | string \| null | ISO 8601 timestamp of last login. `null` if user has never logged in     |
-
-> `lastActive` is updated automatically every time the user successfully logs in via `POST /auth/login`.
-
-**Error responses:**
-```json
-// 401 — Not authenticated
-{ "error": "Unauthorized", "message": "Authorization header with Bearer token is required" }
-
-// 403 — Missing USER_MANAGEMENT_READ permission
-{ "error": "Forbidden", "message": "Missing required permission" }
-
-// 500 — Server error
-{ "success": false, "error": "Internal server error", "message": "Failed to fetch users" }
-```
-
----
-
-#### `PATCH /users/:id`
-Update a user's name, email, password, active status, and/or badge (role). All fields are optional — send only what needs to change.
-
-**Auth required:** Yes
-**Permission required:** `USER_MANAGEMENT_UPDATE`
-
-**Path parameters:**
-
-| Parameter | Type    | Description |
-|-----------|---------|-------------|
-| id        | integer | User ID     |
-
-**Request body** (all fields optional, but at least one must be provided):
-```json
-{
-  "name": "Jane Smith",
-  "email": "jane.smith@example.com",
-  "password": "NewSecurePass123!",
-  "badgeId": 3,
-  "active": false
-}
-```
-
-| Field    | Type    | Required | Rules                                                                  |
-|----------|---------|----------|------------------------------------------------------------------------|
-| name     | string  | No       | Non-empty string                                                       |
-| email    | string  | No       | Valid email format, unique across all users                            |
-| password | string  | No       | Non-empty. Will be bcrypt-hashed (10 rounds) before storing            |
-| badgeId  | number  | No       | Must be an existing badge ID. **Replaces** all current badges on user  |
-| active   | boolean | No       | `true` = active, `false` = inactive                                    |
-
-> **Note on `badgeId`:** Providing a `badgeId` completely replaces the user's current badge assignment — it is not additive. The user will only hold the newly specified badge after the update.
-
-**Response `200`:**
-```json
-{
-  "success": true,
-  "message": "User updated successfully",
-  "user": {
-    "id": 2,
-    "name": "Jane Smith",
-    "email": "jane.smith@example.com",
-    "active": "inactive",
-    "role": "Senior Editor"
-  }
-}
-```
-
-**Error responses:**
-```json
-// 400 — Invalid user ID
-{ "success": false, "error": "Invalid user ID" }
-
-// 400 — Validation errors
-{ "success": false, "error": "Name must be a non-empty string" }
-{ "success": false, "error": "Email must be a valid email address" }
-{ "success": false, "error": "Email is already in use by another user" }
-{ "success": false, "error": "Password must be a non-empty string" }
-{ "success": false, "error": "Active must be a boolean value" }
-{ "success": false, "error": "Badge ID must be a number" }
-{ "success": false, "error": "Invalid badge ID - badge does not exist" }
-
-// 404 — User not found
-{ "success": false, "error": "User not found" }
-
-// 500 — Server error
-{ "success": false, "error": "Internal server error", "message": "Failed to update user" }
-```
-
----
-
-#### `DELETE /users/:id`
-Permanently delete a user. Before deleting, the backend gracefully handles all related records:
-- User's badge assignments are removed
-- User's documents are deleted
-- Registrations linked to this user have `clientId` set to `null`
-- Registration documents uploaded or verified by this user have those foreign key fields set to `null`
-
-**Auth required:** Yes
-**Permission required:** `USER_MANAGEMENT_DELETE`
-
-**Response `200`:**
-```json
-{
-  "success": true,
-  "message": "User deleted successfully"
-}
-```
-
-**Error responses:**
-```json
-// 400 — Invalid user ID
-{ "success": false, "error": "Invalid user ID" }
-
-// 404 — User not found
-{ "success": false, "error": "User not found" }
-
-// 500 — Server error
-{ "success": false, "error": "Internal server error", "message": "Failed to delete user" }
-```
-
----
-
-### 5.5 Ticket Routes
-
-All ticket routes require authentication and a specific `SUPPORT_TICKETS_*` permission.
+> **Customer vs Admin behavior:** Customers see only their own tickets. Admins see all tickets.
 
 ---
 
 #### `GET /tickets`
-List all tickets, ordered by creation date descending. Supports optional query filters.
+List tickets. Supports optional query filters.
 
 **Auth required:** Yes
 **Permission required:** `SUPPORT_TICKETS_READ`
 
 **Query parameters:**
 
-| Parameter    | Type    | Description                        |
-|--------------|---------|------------------------------------|
+| Parameter    | Type    | Description                              |
+|--------------|---------|------------------------------------------|
 | status       | string  | Filter: `OPEN`, `IN_PROGRESS`, `RESOLVED` |
-| priority     | string  | Filter: `HIGH`, `MEDIUM`, `LOW`    |
-| clientId     | integer | Filter by client user ID           |
-| assignedToId | integer | Filter by assigned user ID         |
-
-**Request:**
-```http
-GET /tickets?status=OPEN&priority=HIGH
-Authorization: Bearer <accessToken>
-```
+| priority     | string  | Filter: `HIGH`, `MEDIUM`, `LOW`           |
+| clientId     | integer | Filter by client user ID (admin only)    |
+| assignedToId | integer | Filter by assigned user ID               |
 
 **Response `200`:**
 ```json
@@ -1072,15 +961,6 @@ Authorization: Bearer <accessToken>
     }
   ]
 }
-```
-
-**Error responses:**
-```json
-// 401 — Not authenticated
-{ "error": "Unauthorized", "message": "Authorization header with Bearer token is required" }
-
-// 403 — Missing permission
-{ "error": "Forbidden", "message": "Missing required permission" }
 ```
 
 ---
@@ -1104,9 +984,11 @@ Create a new ticket.
 | Field        | Type    | Required | Rules                                    |
 |--------------|---------|----------|------------------------------------------|
 | title        | string  | Yes      | Non-empty string                         |
-| clientId     | number  | Yes      | Must be an existing user ID              |
+| clientId     | number  | Yes (Admin) | Must be an existing user ID           |
 | priority     | string  | No       | `HIGH`, `MEDIUM`, `LOW`. Default: `MEDIUM` |
 | assignedToId | number  | No       | Must be an existing user ID if provided  |
+
+> **Customer behavior:** When a `CUSTOMER` creates a ticket, their own user ID is used as `clientId` automatically.
 
 **Response `201`:**
 ```json
@@ -1127,60 +1009,23 @@ Create a new ticket.
 }
 ```
 
-**Error responses:**
-```json
-// 400 — Validation errors
-{ "success": false, "error": "Title is required and must be a non-empty string" }
-{ "success": false, "error": "Client ID is required and must be a number" }
-{ "success": false, "error": "Priority must be one of: HIGH, MEDIUM, LOW" }
-{ "success": false, "error": "Client user does not exist" }
-{ "success": false, "error": "Assigned user does not exist" }
-```
-
 ---
 
 #### `GET /tickets/:id`
-Get a single ticket by ID.
+Get a single ticket by ID. Customers can only access their own tickets.
 
 **Auth required:** Yes
 **Permission required:** `SUPPORT_TICKETS_READ`
 
-**Response `200`:**
-```json
-{
-  "success": true,
-  "ticket": {
-    "id": 1,
-    "title": "Fix login page bug",
-    "clientId": 3,
-    "client": { "id": 3, "name": "John Doe", "email": "john@example.com" },
-    "priority": "HIGH",
-    "status": "OPEN",
-    "createdAt": "2026-02-19T10:00:00.000Z",
-    "assignedToId": 1,
-    "assignedTo": { "id": 1, "name": "Super Admin", "email": "admin@mutetaxes.com" }
-  }
-}
-```
-
-**Error responses:**
-```json
-// 400 — Invalid ID
-{ "success": false, "error": "Invalid ticket ID" }
-
-// 404 — Not found
-{ "success": false, "error": "Ticket not found" }
-```
-
 ---
 
 #### `PATCH /tickets/:id`
-Update a ticket's title, priority, status, or assigned user. All fields optional.
+Update a ticket. **Admin only.**
 
-**Auth required:** Yes
+**Auth required:** Yes (Admin)
 **Permission required:** `SUPPORT_TICKETS_UPDATE`
 
-**Request body** (all fields optional, but at least one required):
+**Request body** (all optional, at least one required):
 ```json
 {
   "title": "Updated title",
@@ -1190,40 +1035,19 @@ Update a ticket's title, priority, status, or assigned user. All fields optional
 }
 ```
 
-| Field        | Type    | Required | Rules                                    |
-|--------------|---------|----------|------------------------------------------|
-| title        | string  | No       | Non-empty string                         |
-| priority     | string  | No       | `HIGH`, `MEDIUM`, `LOW`                  |
-| status       | string  | No       | `OPEN`, `IN_PROGRESS`, `RESOLVED`        |
-| assignedToId | number \| null | No | Must be an existing user ID, or `null` to unassign |
-
-**Response `200`:**
-```json
-{
-  "success": true,
-  "message": "Ticket updated successfully",
-  "ticket": { ... }
-}
-```
-
-**Error responses:**
-```json
-// 400 — Validation errors
-{ "success": false, "error": "Title must be a non-empty string" }
-{ "success": false, "error": "Priority must be one of: HIGH, MEDIUM, LOW" }
-{ "success": false, "error": "Status must be one of: OPEN, IN_PROGRESS, RESOLVED" }
-{ "success": false, "error": "Assigned user does not exist" }
-
-// 404 — Not found
-{ "success": false, "error": "Ticket not found" }
-```
+| Field        | Type            | Rules                                    |
+|--------------|-----------------|------------------------------------------|
+| title        | string          | Non-empty string                         |
+| priority     | string          | `HIGH`, `MEDIUM`, `LOW`                  |
+| status       | string          | `OPEN`, `IN_PROGRESS`, `RESOLVED`        |
+| assignedToId | number \| null  | Existing user ID or `null` to unassign   |
 
 ---
 
 #### `DELETE /tickets/:id`
-Delete a ticket permanently.
+Delete a ticket. **Admin only.**
 
-**Auth required:** Yes
+**Auth required:** Yes (Admin)
 **Permission required:** `SUPPORT_TICKETS_DELETE`
 
 **Response `200`:**
@@ -1234,27 +1058,16 @@ Delete a ticket permanently.
 }
 ```
 
-**Error responses:**
-```json
-// 400 — Invalid ID
-{ "success": false, "error": "Invalid ticket ID" }
-
-// 404 — Not found
-{ "success": false, "error": "Ticket not found" }
-```
-
 ---
 
-### 5.6 Registration Routes
+### 6.6 Registration Routes (Admin)
 
 Base path: `/api/v1/registrations`
 
 ---
 
 #### `POST /api/v1/registrations`
-Submit a new company registration. **This is a public endpoint — no authentication required.**
-
-Accepts the full multi-step form payload. Creates the registration, all stakeholders (shareholders/directors), and their uploaded documents in a single transaction.
+Submit a new company registration. **Public endpoint — no authentication required.**
 
 **Auth required:** No
 
@@ -1346,18 +1159,6 @@ Accepts the full multi-step form payload. Creates the registration, all stakehol
 }
 ```
 
-**Required fields:**
-
-| Section   | Field                      | Required |
-|-----------|----------------------------|----------|
-| applicant | firstName, lastName, email, phone | Yes |
-| company   | proposedCompanyName        | Yes      |
-| persons[n]| type, roles                | Yes (per person) |
-
-**Person type rules:**
-- `type: "individual"` → `fullName`, `nationality`, `residentialAddress` recommended
-- `type: "corporate"` → `companyName`, `countryOfIncorporation`, `registrationNumber` recommended
-
 **Response `201`:**
 ```json
 {
@@ -1367,24 +1168,14 @@ Accepts the full multi-step form payload. Creates the registration, all stakehol
 }
 ```
 
-> Store the returned `id` (UUID) — use it to fetch or update this registration later.
-
-**Error responses:**
-```json
-// 400 — Missing required fields
-{ "success": false, "error": "Applicant firstName, lastName, email and phone are required" }
-{ "success": false, "error": "Company proposedCompanyName is required" }
-
-// 500 — Server error
-{ "success": false, "error": "Internal server error" }
-```
+> Store the returned `id` (UUID) — use it to fetch or update this registration.
 
 ---
 
 #### `GET /api/v1/registrations`
-List all registrations with pagination and optional filters. Returns a dashboard-friendly shape.
+List all registrations. Admin only.
 
-**Auth required:** Yes
+**Auth required:** Yes (Admin)
 **Permission required:** `REGISTRATIONS_READ`
 
 **Query parameters:**
@@ -1395,12 +1186,6 @@ List all registrations with pagination and optional filters. Returns a dashboard
 | assignedToId | integer | —       | Filter by assigned admin user ID         |
 | page         | integer | `1`     | Page number (1-based)                    |
 | limit        | integer | `20`    | Results per page (max 100)               |
-
-**Request:**
-```http
-GET /api/v1/registrations?status=pending&page=1&limit=20
-Authorization: Bearer <accessToken>
-```
 
 **Response `200`:**
 ```json
@@ -1421,130 +1206,31 @@ Authorization: Bearer <accessToken>
       "submittedDate": "2026-02-19T10:00:00.000Z",
       "lastUpdated": "2026-02-19T10:00:00.000Z",
       "documents": 3,
-      "documentList": [ ... ]
+      "documentList": []
     }
   ]
 }
 ```
 
-| Field         | Type    | Description                                              |
-|---------------|---------|----------------------------------------------------------|
-| total         | number  | Total matching records before pagination                 |
-| assignedTo    | string  | Name of the assigned admin user, or `"Unassigned"`       |
-| documents     | number  | Count of uploaded documents for this registration        |
-| documentList  | array   | Full `RegistrationDocument[]` for this registration      |
-
-**Error responses:**
-```json
-// 401 — Not authenticated
-{ "error": "Unauthorized", "message": "..." }
-
-// 403 — Missing REGISTRATIONS_READ permission
-{ "error": "Forbidden", "message": "Missing required permission" }
-```
-
 ---
 
 #### `GET /api/v1/registrations/:id`
-Get the full detail of a single registration including all stakeholders and their documents.
+Get full registration detail. Admin only.
 
-**Auth required:** Yes
+**Auth required:** Yes (Admin)
 **Permission required:** `REGISTRATIONS_READ`
 
-**Path parameters:**
-
-| Parameter | Type | Description        |
-|-----------|------|--------------------|
-| id        | UUID | Registration UUID  |
-
-**Response `200`:**
-```json
-{
-  "success": true,
-  "registration": {
-    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    "status": "pending",
-    "assignedToId": 1,
-    "assignedTo": { "id": 1, "name": "Super Admin", "email": "admin@mutetaxes.com" },
-    "applicantFirstName": "John",
-    "applicantLastName": "Doe",
-    "applicantEmail": "john@example.com",
-    "applicantPhone": "+85212345678",
-    "countryOfIncorporation": "HK",
-    "companyType": "private_limited_company",
-    "proposedCompanyName": "Acme HK Limited",
-    "alternativeNames": ["Acme Hong Kong Ltd"],
-    "natureOfBusiness": ["technology"],
-    "businessScope": "local",
-    "businessScopeDescription": "...",
-    "shareCapitalCurrency": "HKD",
-    "shareCapitalAmount": 10000,
-    "totalShares": 10000,
-    "bankingProviders": ["HSBC"],
-    "preferredBankingProvider": "HSBC",
-    "additionalServices": ["accounting"],
-    "billingName": "John Doe",
-    "billingEmail": "billing@example.com",
-    "billingPhone": "+85212345678",
-    "billingStreet": "123 Nathan Road",
-    "billingCity": "Kowloon",
-    "billingState": "",
-    "billingPostalCode": "00000",
-    "billingCountry": "HK",
-    "billingPaymentMethod": "credit_card",
-    "complianceAccepted": true,
-    "complianceTimestamp": "2026-02-19T10:00:00.000Z",
-    "createdAt": "2026-02-19T10:00:00.000Z",
-    "updatedAt": "2026-02-19T10:00:00.000Z",
-    "stakeholders": [
-      {
-        "id": 1,
-        "registrationId": "a1b2c3d4-...",
-        "type": "individual",
-        "roles": ["shareholder", "director"],
-        "fullName": "John Doe",
-        "nationality": "GB",
-        "email": "john@example.com",
-        "phone": "+85212345678",
-        "addressStreet": "123 Nathan Road",
-        "addressCity": "Kowloon",
-        "addressState": "",
-        "addressPostalCode": "00000",
-        "addressCountry": "HK",
-        "companyName": null,
-        "countryOfIncorporation": null,
-        "registrationNumber": null,
-        "numberOfShares": 10000,
-        "sharePercentage": 100,
-        "documents": [ ... ]
-      }
-    ],
-    "documents": [ ... ]
-  }
-}
-```
-
-**Error responses:**
-```json
-// 404 — Not found
-{ "success": false, "error": "Registration not found" }
-```
+**Response `200`:** Full `RegistrationDetail` object — see [Data Models](#10-data-models).
 
 ---
 
 #### `PATCH /api/v1/registrations/:id`
-Update a registration. All fields are optional.
+Update a registration.
 
-- **Admin workflow:** Update `status` and/or `assignedToId` without touching form data.
-- **Full update:** Send `applicant`, `company`, `persons`, etc. to update form fields.
-- **Persons:** If `persons` array is included, all existing stakeholders and their documents are **fully replaced**. If omitted, stakeholders are untouched.
-
-**Auth required:** Yes
+**Auth required:** Yes (Admin)
 **Permission required:** `REGISTRATIONS_UPDATE`
 
-**Request body examples:**
-
-Admin status update only:
+Admin status/assignment update:
 ```json
 {
   "status": "in-progress",
@@ -1552,94 +1238,1211 @@ Admin status update only:
 }
 ```
 
-Full form update with stakeholder replacement:
+Full form update (replaces all stakeholders):
 ```json
 {
   "applicant": { "firstName": "Jane", "lastName": "Smith", "email": "jane@example.com", "phone": "+85298765432" },
   "company": { "proposedCompanyName": "Updated Co Ltd" },
-  "persons": [
+  "persons": [...]
+}
+```
+
+> **Note on `persons`:** If included, all existing stakeholders and their documents are **fully replaced**. If omitted, stakeholders are untouched.
+
+| Field        | Type            | Rules                                                    |
+|--------------|-----------------|----------------------------------------------------------|
+| status       | string          | `pending`, `in-progress`, `completed`                    |
+| assignedToId | number \| null  | Existing user ID or `null` to unassign                   |
+
+---
+
+#### `DELETE /api/v1/registrations/:id`
+Permanently delete a registration (cascades to stakeholders and documents).
+
+**Auth required:** Yes (Admin)
+**Permission required:** `REGISTRATIONS_DELETE`
+
+---
+
+#### `POST /api/v1/registrations/:id/claim`
+Link a registration to the authenticated customer account.
+
+**Auth required:** Yes (Customer)
+
+> The customer's email must match `applicantEmail` on the registration.
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "message": "Registration claimed successfully"
+}
+```
+
+**Error responses:**
+```json
+// 400 — Email mismatch
+{ "success": false, "error": "Email does not match registration applicant email" }
+
+// 409 — Already claimed
+{ "success": false, "error": "Registration is already linked to a customer" }
+```
+
+---
+
+#### `PATCH /api/v1/registrations/:id/customer`
+Admin endpoint to link or unlink a registration to a customer user.
+
+**Auth required:** Yes (Admin)
+**Permission required:** `REGISTRATIONS_UPDATE`
+
+**Request body:**
+```json
+{
+  "customerId": 5
+}
+```
+
+Send `"customerId": null` to unlink.
+
+---
+
+### 6.7 Customer Portal — My Registrations
+
+These endpoints are for **CUSTOMER users only** to view their own registrations.
+
+Base path: `/api/v1/my-registrations`
+
+---
+
+#### `GET /api/v1/my-registrations`
+List the authenticated customer's own registrations.
+
+**Auth required:** Yes (Customer only)
+
+**Query parameters:**
+
+| Parameter | Type    | Default | Description                              |
+|-----------|---------|---------|------------------------------------------|
+| status    | string  | —       | Filter: `pending`, `in-progress`, `completed` |
+| page      | integer | `1`     | Page number                              |
+| limit     | integer | `20`    | Results per page (max 100)               |
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "total": 2,
+  "page": 1,
+  "limit": 20,
+  "registrations": [
     {
-      "type": "individual",
-      "roles": ["shareholder", "director"],
-      "fullName": "Jane Smith",
-      "nationality": "HK",
-      "email": "jane@example.com",
-      "phone": "+85298765432",
-      "residentialAddress": { "street": "456 Queens Road", "city": "Central", "state": "", "postalCode": "00000", "country": "HK" },
-      "shareholding": { "shares": 10000, "percentage": 100 },
-      "documents": { "passport": { "key": "...", "url": "...", "fileName": "passport.jpg", "mimeType": "image/jpeg", "size": 98304 }, "selfie": null, "addressProof": null, "certificate_of_incorporation": null, "business_license": null, "others": null }
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "status": "completed",
+      "applicantFirstName": "John",
+      "applicantLastName": "Doe",
+      "applicantEmail": "john@example.com",
+      "proposedCompanyName": "ABC Holdings Ltd",
+      "countryOfIncorporation": "HK",
+      "companyType": "private_limited_company",
+      "createdAt": "2026-02-20T09:00:00.000Z",
+      "updatedAt": "2026-02-26T10:00:00.000Z"
     }
   ]
 }
 ```
 
-Additional body fields:
+---
 
-| Field        | Type    | Rules                                                    |
-|--------------|---------|----------------------------------------------------------|
-| status       | string  | `pending`, `in-progress`, `completed`                    |
-| assignedToId | number \| null | Must be an existing user ID, or `null` to unassign |
+#### `GET /api/v1/my-registrations/:id`
+Get one of the customer's own registrations. Returns `404` if the registration is not owned by the authenticated user.
+
+**Auth required:** Yes (Customer only)
 
 **Response `200`:**
 ```json
 {
   "success": true,
-  "message": "Registration updated successfully",
-  "registration": { ... }
+  "registration": {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "status": "completed",
+    "applicantFirstName": "John",
+    "applicantLastName": "Doe",
+    "applicantEmail": "john@example.com",
+    "applicantPhone": "+85212345678",
+    "proposedCompanyName": "ABC Holdings Ltd",
+    "alternativeNames": ["ABC Ventures Ltd"],
+    "countryOfIncorporation": "HK",
+    "companyType": "private_limited_company",
+    "createdAt": "2026-02-20T09:00:00.000Z",
+    "updatedAt": "2026-02-26T10:00:00.000Z"
+  }
 }
-```
-
-**Error responses:**
-```json
-// 400 — Invalid status
-{ "success": false, "error": "status must be one of: pending, in-progress, completed" }
-
-// 404 — Not found
-{ "success": false, "error": "Registration not found" }
 ```
 
 ---
 
-#### `DELETE /api/v1/registrations/:id`
-Permanently delete a registration and cascade to all related stakeholders and documents. This action is irreversible.
+### 6.8 Customer Portal — Service Requests
 
-**Auth required:** Yes
-**Permission required:** `REGISTRATIONS_DELETE`
+These endpoints let **CUSTOMER users** submit and manage their own service requests.
+
+Base path: `/api/v1/customer/service-requests`
+
+> All endpoints require the customer to be authenticated (CUSTOMER user type).
+
+---
+
+#### `GET /api/v1/customer/service-requests`
+List the authenticated customer's own service requests.
+
+**Auth required:** Yes (Customer)
+**Permission required:** `SUPPORT_TICKETS_READ`
+
+**Query parameters:**
+
+| Parameter | Type   | Description                                              |
+|-----------|--------|----------------------------------------------------------|
+| status    | string | Filter: `pending`, `in-progress`, `completed`, `rejected`|
+| search    | string | Search across id, type, description                      |
+| sortBy    | string | `requestedAt` (default), `updatedAt`, `status`, `type`  |
+| sortOrder | string | `asc` or `desc` (default: `desc`)                        |
+| page      | integer| Page number (default: 1)                                 |
+| limit     | integer| Results per page (default: 20, max: 100)                 |
 
 **Response `200`:**
 ```json
 {
   "success": true,
-  "message": "Registration deleted successfully"
+  "data": [
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "customerId": 12,
+      "type": "Change of Directors",
+      "typeCode": "change_directors",
+      "description": "Please update the director list with the attached resolution.",
+      "status": "pending",
+      "priority": "medium",
+      "requestedByUserId": 12,
+      "assignedToAdminId": null,
+      "adminNotes": null,
+      "requestedAt": "2026-02-26T11:00:00.000Z",
+      "resolvedAt": null,
+      "createdAt": "2026-02-26T11:00:00.000Z",
+      "updatedAt": "2026-02-26T11:00:00.000Z"
+    }
+  ],
+  "meta": {
+    "page": 1,
+    "limit": 20,
+    "total": 1,
+    "sortBy": "requestedAt",
+    "sortOrder": "desc"
+  }
+}
+```
+
+---
+
+#### `POST /api/v1/customer/service-requests`
+Create a new service request.
+
+**Auth required:** Yes (Customer)
+**Permission required:** `SUPPORT_TICKETS_CREATE`
+
+**Request body:**
+```json
+{
+  "type": "Change of Directors",
+  "typeCode": "change_directors",
+  "description": "Please update the director list with the attached resolution.",
+  "priority": "medium"
+}
+```
+
+| Field       | Type   | Required | Rules                                    |
+|-------------|--------|----------|------------------------------------------|
+| type        | string | Yes      | Non-empty, max 255 chars. Human-readable label |
+| typeCode    | string | No       | Machine-readable slug. Nullable.         |
+| description | string | Yes      | Non-empty, max 5000 chars                |
+| priority    | string | No       | `low`, `medium` (default), `high`        |
+
+**Response `201`:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "customerId": 12,
+    "type": "Change of Directors",
+    "typeCode": "change_directors",
+    "description": "Please update the director list with the attached resolution.",
+    "status": "pending",
+    "priority": "medium",
+    "requestedByUserId": 12,
+    "assignedToAdminId": null,
+    "adminNotes": null,
+    "requestedAt": "2026-02-26T11:00:00.000Z",
+    "resolvedAt": null,
+    "createdAt": "2026-02-26T11:00:00.000Z",
+    "updatedAt": "2026-02-26T11:00:00.000Z"
+  },
+  "meta": {}
+}
+```
+
+---
+
+#### `GET /api/v1/customer/service-requests/:requestId`
+Get a single service request (customer's own only).
+
+**Auth required:** Yes (Customer)
+**Permission required:** `SUPPORT_TICKETS_READ`
+
+**Response `200`:** Same `data` object shape as the list item above.
+
+---
+
+#### `PATCH /api/v1/customer/service-requests/:requestId`
+Update a service request. **Only allowed while status is `pending`.**
+
+**Auth required:** Yes (Customer)
+**Permission required:** `SUPPORT_TICKETS_UPDATE`
+
+**Request body** (at least one field required):
+```json
+{
+  "description": "Updated description with more details.",
+  "priority": "high"
+}
+```
+
+| Field       | Type   | Required | Rules                           |
+|-------------|--------|----------|---------------------------------|
+| description | string | No       | Non-empty, max 5000 chars       |
+| priority    | string | No       | `low`, `medium`, `high`         |
+
+**Error responses:**
+```json
+// 400 — Request already in processing
+{
+  "success": false,
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Customer can only update service requests while status is pending",
+    "details": [{ "field": "status", "message": "Request already in processing" }]
+  }
+}
+```
+
+---
+
+#### `GET /api/v1/customer/service-requests/:requestId/activity`
+Get the activity/history log for a service request.
+
+**Auth required:** Yes (Customer)
+**Permission required:** `SUPPORT_TICKETS_READ`
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "act_uuid",
+      "serviceRequestId": "sr_uuid",
+      "actorUserId": 5,
+      "actionType": "status_changed",
+      "payload": {
+        "before": "pending",
+        "after": "in-progress"
+      },
+      "createdAt": "2026-02-26T12:00:00.000Z",
+      "actor": {
+        "id": 5,
+        "name": "Admin User",
+        "email": "admin@mutetaxes.com",
+        "type": "ADMIN"
+      }
+    }
+  ],
+  "meta": {}
+}
+```
+
+**Activity action types:**
+
+| actionType                | Triggered by    | Description                             |
+|---------------------------|-----------------|-----------------------------------------|
+| `created`                 | Customer        | Service request created                 |
+| `customer_updated`        | Customer        | Customer edited description/priority    |
+| `status_changed`          | Admin           | Status was changed                      |
+| `admin_notes_updated`     | Admin           | Admin notes were updated                |
+| `internal_notes_updated`  | Admin           | Internal notes were updated             |
+| `assignment_changed`      | Admin           | Assigned admin changed                  |
+| `priority_changed`        | Admin           | Priority level changed                  |
+
+---
+
+### 6.9 Admin Customer Management
+
+These endpoints let **ADMIN users** manage customer data — company profiles, stakeholders, documents, renewals, and service requests.
+
+Base path (list): `/api/v1/admin/customers`
+Base path (customer scoped): `/api/v1/admin/customers/:customerId`
+
+> All endpoints:
+> - Require `ADMIN` user type
+> - The `:customerId` must be a user with `type === "CUSTOMER"`
+
+---
+
+#### `GET /api/v1/admin/customers`
+List customers for the **Customer Management table** with company and registration summary fields already flattened.
+
+**Permission required:** `USER_MANAGEMENT_READ`
+
+**Query parameters:**
+
+| Parameter          | Type    | Default | Description |
+|-------------------|---------|---------|-------------|
+| `search`          | string  | —       | Search across customer name, email, and company names |
+| `status`          | string  | —       | Customer user status filter: `active`, `inactive`, `true`, `false` |
+| `country`         | string  | —       | Country filter (company profile country / registration fallback) |
+| `registrationStatus` | string | —     | Registration status filter: `pending`, `in-progress`, `completed` |
+| `page`            | integer | `1`     | Page number |
+| `limit`           | integer | `20`    | Results per page |
+| `sortBy`          | string  | `createdAt` | `createdAt`, `name`, `email`, `lastActive` |
+| `sortOrder`       | string  | `desc`  | `asc` or `desc` |
+
+**Example:**
+
+```http
+GET /api/v1/admin/customers?search=james&status=active&country=Hong%20Kong&registrationStatus=completed&page=1&limit=10
+Authorization: Bearer <admin_token>
+```
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "total": 1,
+  "page": 1,
+  "limit": 10,
+  "customers": [
+    {
+      "id": 12,
+      "name": "James Whitfield",
+      "status": "active",
+      "email": "james.whitfield@gmail.com",
+      "companyName": "Whitfield Holdings Ltd",
+      "companyType": "Private Limited",
+      "country": "Hong Kong",
+      "registrationStatus": "completed"
+    }
+  ]
+}
+```
+
+This endpoint is intended for the admin customer list table and avoids calling `GET /users`.
+
+---
+
+#### `GET /api/v1/admin/customers/:customerId`
+Get customer summary — identity, latest registration, counts, and feature flags.
+
+**Permission required:** `USER_MANAGEMENT_READ`
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 12,
+    "name": "John Doe",
+    "email": "john@example.com",
+    "type": "CUSTOMER",
+    "active": true,
+    "lastActive": "2026-02-26T10:00:00.000Z",
+    "badges": [{ "id": 2, "name": "customer", "displayName": "Customer" }],
+    "latestRegistration": {
+      "id": "a1b2c3d4-...",
+      "status": "completed",
+      "proposedCompanyName": "Acme HK Limited",
+      "assignedToId": 1,
+      "createdAt": "2026-02-20T09:00:00.000Z",
+      "updatedAt": "2026-02-26T10:00:00.000Z"
+    },
+    "counts": {
+      "registrations": 1,
+      "stakeholders": 2,
+      "registrationDocuments": 3,
+      "companyDocuments": 5,
+      "renewals": 2,
+      "serviceRequests": 1
+    },
+    "hasCompanyProfile": true
+  }
+}
+```
+
+---
+
+#### Company Profile
+
+---
+
+##### `GET /api/v1/admin/customers/:customerId/company-profile`
+Get the customer's company profile.
+
+**Permission required:** `USER_MANAGEMENT_READ`
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "customerId": 12,
+    "registrationId": "reg_uuid",
+    "companyName": "Acme HK Limited",
+    "businessNature": "Technology consulting",
+    "businessEmail": "info@acme.com",
+    "phoneNumber": "+85212345678",
+    "registeredOfficeAddress": "123 Nathan Road, Kowloon, HK",
+    "companyType": "private_limited_company",
+    "countryOfIncorporation": "HK",
+    "businessRegistrationNumber": "12345678",
+    "incorporationDate": "2024-01-15",
+    "status": "active",
+    "source": "registration",
+    "createdAt": "2026-02-19T10:00:00.000Z",
+    "updatedAt": "2026-02-26T10:00:00.000Z"
+  }
 }
 ```
 
 **Error responses:**
 ```json
-// 404 — Not found
-{ "success": false, "error": "Registration not found" }
+// 404 — No profile exists yet
+{ "success": false, "error": { "code": "NOT_FOUND", "message": "Company profile not found" } }
 ```
 
 ---
 
-## 6. Error Handling
+##### `POST /api/v1/admin/customers/:customerId/company-profile`
+Create a company profile. One profile per customer.
 
-### Standard error response shape
+**Permission required:** `USER_MANAGEMENT_UPDATE`
 
-Every error from the backend follows one of these two structures:
+**Request body:**
+```json
+{
+  "companyName": "Acme HK Limited",
+  "businessNature": "Technology consulting",
+  "businessEmail": "info@acme.com",
+  "phoneNumber": "+85212345678",
+  "registeredOfficeAddress": "123 Nathan Road, Kowloon, HK",
+  "companyType": "private_limited_company",
+  "countryOfIncorporation": "HK",
+  "businessRegistrationNumber": "12345678",
+  "incorporationDate": "2024-01-15",
+  "status": "active",
+  "source": "registration",
+  "registrationId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+}
+```
+
+| Field                      | Type   | Required | Rules                        |
+|----------------------------|--------|----------|------------------------------|
+| companyName                | string | Yes      | Non-empty                    |
+| businessNature             | string | Yes      | Non-empty                    |
+| businessEmail              | string | Yes      | Valid email                  |
+| phoneNumber                | string | Yes      | Non-empty                    |
+| registeredOfficeAddress    | string | Yes      | Non-empty                    |
+| companyType                | string | No       |                              |
+| countryOfIncorporation     | string | No       |                              |
+| businessRegistrationNumber | string | No       |                              |
+| incorporationDate          | string | No       | Format: `YYYY-MM-DD`         |
+| status                     | string | No       |                              |
+| source                     | string | No       |                              |
+| registrationId             | string | No       | UUID of linked registration  |
+
+**Response `201`:** Created company profile object.
+
+**Error responses:**
+```json
+// 409 — Profile already exists
+{ "success": false, "error": { "code": "CONFLICT", "message": "Company profile already exists for this customer" } }
+```
+
+---
+
+##### `PATCH /api/v1/admin/customers/:customerId/company-profile`
+Update the company profile. All fields optional, at least one required.
+
+**Permission required:** `USER_MANAGEMENT_UPDATE`
+
+**Response `200`:** Updated company profile object.
+
+---
+
+#### Stakeholders
+
+---
+
+##### `GET /api/v1/admin/customers/:customerId/stakeholders`
+List stakeholders from the customer's linked registration(s).
+
+**Permission required:** `USER_MANAGEMENT_READ`
+
+**Query parameters:**
+
+| Parameter      | Type    | Description                                              |
+|----------------|---------|----------------------------------------------------------|
+| role           | string  | Filter: `director`, `shareholder`                        |
+| type           | string  | Filter: `individual`, `corporate`                        |
+| search         | string  | Search across fullName, companyName, email               |
+| hasDocuments   | boolean | Filter to stakeholders that have/don't have documents    |
+| registrationId | string  | UUID — required if customer has multiple registrations   |
+| sortBy         | string  | `id` (default), `fullName`, `companyName`, `sharePercentage` |
+| sortOrder      | string  | `asc` or `desc` (default: `desc`)                        |
+| page           | integer | Default: 1                                               |
+| limit          | integer | Default: 20, max: 100                                    |
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "registrationId": "a1b2c3d4-...",
+      "type": "individual",
+      "roles": ["shareholder", "director"],
+      "fullName": "John Doe",
+      "companyName": null,
+      "nationality": "GB",
+      "email": "john@example.com",
+      "phone": "+85212345678",
+      "addressStreet": "123 Nathan Road",
+      "addressCity": "Kowloon",
+      "addressState": "",
+      "addressPostalCode": "00000",
+      "addressCountry": "HK",
+      "countryOfIncorporation": null,
+      "registrationNumber": null,
+      "numberOfShares": 10000,
+      "sharePercentage": 100,
+      "hasDocuments": true,
+      "documentsCount": 2
+    }
+  ],
+  "meta": { "page": 1, "limit": 20, "total": 1 }
+}
+```
+
+---
+
+##### `POST /api/v1/admin/customers/:customerId/stakeholders`
+Create a stakeholder under the customer's linked registration.
+
+**Permission required:** `USER_MANAGEMENT_UPDATE`
+
+**Request body:**
+```json
+{
+  "registrationId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "type": "individual",
+  "roles": ["director", "shareholder"],
+  "fullName": "Jane Smith",
+  "nationality": "HK",
+  "email": "jane@example.com",
+  "phone": "+85298765432",
+  "addressStreet": "456 Queens Road",
+  "addressCity": "Central",
+  "addressState": "",
+  "addressPostalCode": "00000",
+  "addressCountry": "HK",
+  "numberOfShares": 5000,
+  "sharePercentage": 50
+}
+```
+
+| Field          | Type    | Required | Rules                                                    |
+|----------------|---------|----------|----------------------------------------------------------|
+| type           | string  | Yes      | `individual` or `corporate`                              |
+| roles          | array   | Yes      | Array of `director`, `shareholder`                       |
+| registrationId | string  | Conditional | Required if customer has multiple linked registrations |
+
+**Response `201`:** Created stakeholder object.
+
+---
+
+##### `GET /api/v1/admin/customers/:customerId/stakeholders/:stakeholderId`
+Get a single stakeholder.
+
+**Permission required:** `USER_MANAGEMENT_READ`
+
+---
+
+##### `PATCH /api/v1/admin/customers/:customerId/stakeholders/:stakeholderId`
+Update a stakeholder. All fields optional.
+
+**Permission required:** `USER_MANAGEMENT_UPDATE`
+
+---
+
+##### `DELETE /api/v1/admin/customers/:customerId/stakeholders/:stakeholderId`
+Delete a stakeholder.
+
+**Permission required:** `USER_MANAGEMENT_UPDATE`
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "message": "Stakeholder deleted successfully"
+}
+```
+
+---
+
+#### Company Documents
+
+The company documents system supports a **two-step upload flow** using S3 presigned URLs.
+
+---
+
+##### `GET /api/v1/admin/customers/:customerId/documents`
+List customer company documents.
+
+**Permission required:** `USER_MANAGEMENT_READ`
+
+**Query parameters:**
+
+| Parameter      | Type    | Description                                              |
+|----------------|---------|----------------------------------------------------------|
+| category       | string  | Filter by document category                              |
+| stakeholderId  | integer | Filter by stakeholder                                    |
+| status         | string  | Filter: `pending_upload`, `uploaded`, `failed`, `deleted`|
+| search         | string  | Search across name, fileName, documentType               |
+| registrationId | string  | Filter by linked registration UUID                       |
+| createdFrom    | string  | ISO datetime lower bound                                 |
+| createdTo      | string  | ISO datetime upper bound                                 |
+| sortBy         | string  | `createdAt` (default), `name`, `category`               |
+| sortOrder      | string  | `asc` or `desc` (default: `desc`)                        |
+| page           | integer | Default: 1                                               |
+| limit          | integer | Default: 20, max: 100                                    |
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "doc_uuid",
+      "customerId": 12,
+      "registrationId": "reg_uuid",
+      "stakeholderId": null,
+      "category": "Incorporation",
+      "documentType": "certificate_of_incorporation",
+      "name": "Certificate of Incorporation",
+      "fileKey": "customers/12/company-documents/doc_uuid/certificate.pdf",
+      "fileName": "certificate.pdf",
+      "fileUrl": "https://cdn.example.com/...",
+      "mimeType": "application/pdf",
+      "fileSize": 245120,
+      "etag": "\"abc123\"",
+      "status": "uploaded",
+      "uploadedBy": 5,
+      "createdAt": "2026-02-26T10:00:00.000Z",
+      "updatedAt": "2026-02-26T10:05:00.000Z",
+      "deletedAt": null
+    }
+  ],
+  "meta": { "page": 1, "limit": 20, "total": 1 }
+}
+```
+
+---
+
+##### `POST /api/v1/admin/customers/:customerId/documents/upload-init`
+**Step 1 of 2:** Initialize a document upload. Creates a metadata record and returns a presigned S3 PUT URL.
+
+**Permission required:** `USER_MANAGEMENT_UPDATE`
+
+**Request body:**
+```json
+{
+  "name": "Certificate of Incorporation",
+  "category": "Incorporation",
+  "documentType": "certificate_of_incorporation",
+  "fileName": "certificate.pdf",
+  "mimeType": "application/pdf",
+  "fileSize": 245120,
+  "stakeholderId": null,
+  "registrationId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+}
+```
+
+| Field         | Type    | Required | Rules                                                         |
+|---------------|---------|----------|---------------------------------------------------------------|
+| name          | string  | Yes      | Human-readable document name, max 255 chars                   |
+| category      | string  | Yes      | Category label, max 100 chars                                 |
+| documentType  | string  | No       | Nullable — e.g. `certificate_of_incorporation`                |
+| fileName      | string  | Yes      | Original file name with extension                             |
+| mimeType      | string  | Yes      | `application/pdf`, `image/jpeg`, `image/jpg`, `image/png`, `image/webp` |
+| fileSize      | integer | Yes      | File size in bytes. Max: **20 MB** (20971520)                 |
+| stakeholderId | integer | No       | Link document to a specific stakeholder                       |
+| registrationId| string  | No       | UUID of linked registration                                   |
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "data": {
+    "documentId": "doc_uuid",
+    "fileKey": "customers/12/company-documents/doc_uuid/certificate.pdf",
+    "publicUrl": "https://cdn.example.com/customers/12/company-documents/doc_uuid/certificate.pdf",
+    "uploadUrl": "https://s3-presigned-url...",
+    "uploadMethod": "PUT",
+    "requiredHeaders": {
+      "Content-Type": "application/pdf"
+    },
+    "expiresAt": "2026-02-26T10:15:00.000Z"
+  },
+  "meta": {}
+}
+```
+
+**Frontend upload flow:**
 
 ```typescript
-// Format A (auth/middleware errors)
+// Step 1: Init upload
+const { data } = await api.post(`/api/v1/admin/customers/${customerId}/documents/upload-init`, {
+  name: "Certificate of Incorporation",
+  category: "Incorporation",
+  fileName: file.name,
+  mimeType: file.type,
+  fileSize: file.size,
+});
+
+// Step 2: Upload directly to S3 using presigned URL
+await fetch(data.uploadUrl, {
+  method: 'PUT',
+  headers: { 'Content-Type': file.type },
+  body: file,
+});
+
+// Step 3: Confirm upload complete
+await api.post(
+  `/api/v1/admin/customers/${customerId}/documents/${data.documentId}/upload-complete`,
+  { etag: null } // Optional: pass ETag from S3 response headers
+);
+```
+
+---
+
+##### `POST /api/v1/admin/customers/:customerId/documents/:documentId/upload-complete`
+**Step 2 of 2:** Confirm the upload completed. Marks the document status as `uploaded`.
+
+**Permission required:** `USER_MANAGEMENT_UPDATE`
+
+**Request body** (optional):
+```json
+{
+  "etag": "\"abc123\""
+}
+```
+
+**Response `200`:** Updated document metadata object.
+
+---
+
+##### `GET /api/v1/admin/customers/:customerId/documents/:documentId`
+Get a single document's metadata.
+
+**Permission required:** `USER_MANAGEMENT_READ`
+
+---
+
+##### `GET /api/v1/admin/customers/:customerId/documents/:documentId/download-url`
+Get a signed S3 URL to download a document. Only works for `status === "uploaded"` documents.
+
+**Permission required:** `USER_MANAGEMENT_READ`
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "data": {
+    "downloadUrl": "https://s3-signed-url...",
+    "expiresAt": "2026-02-26T11:00:00.000Z"
+  }
+}
+```
+
+**Error responses:**
+```json
+// 400 — Document not uploaded yet
+{ "success": false, "error": { "code": "VALIDATION_ERROR", "message": "Document is not yet uploaded" } }
+```
+
+---
+
+##### `PATCH /api/v1/admin/customers/:customerId/documents/:documentId`
+Update document metadata (name, category, stakeholder link, status).
+
+**Permission required:** `USER_MANAGEMENT_UPDATE`
+
+**Request body** (at least one field required):
+```json
+{
+  "name": "Certificate of Incorporation (Stamped)",
+  "category": "Statutory",
+  "documentType": null,
+  "stakeholderId": 45,
+  "registrationId": "a1b2c3d4-...",
+  "status": "uploaded"
+}
+```
+
+| Field         | Type    | Rules                                                         |
+|---------------|---------|---------------------------------------------------------------|
+| name          | string  | Max 255 chars                                                 |
+| category      | string  | Max 100 chars                                                 |
+| documentType  | string  | Nullable                                                      |
+| stakeholderId | integer | Nullable — link/unlink document from stakeholder              |
+| registrationId| string  | Nullable UUID                                                 |
+| status        | string  | `pending_upload`, `uploaded`, `failed`, `deleted`             |
+
+---
+
+##### `DELETE /api/v1/admin/customers/:customerId/documents/:documentId`
+Soft-delete a document (sets `deletedAt` timestamp, `status` becomes `deleted`).
+
+**Permission required:** `USER_MANAGEMENT_UPDATE`
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "data": { "id": "doc_uuid", "deleted": true },
+  "meta": {}
+}
+```
+
+---
+
+#### Renewals
+
+Renewals track company obligations with due dates and amounts. Amounts are stored as **minor units (cents)** — e.g. `220000` = HKD 2,200.00.
+
+---
+
+##### `GET /api/v1/admin/customers/:customerId/renewals`
+List customer renewals.
+
+**Permission required:** `USER_MANAGEMENT_READ`
+
+**Query parameters:**
+
+| Parameter    | Type    | Description                                             |
+|--------------|---------|---------------------------------------------------------|
+| status       | string  | Filter: `upcoming`, `pending`, `current`, `overdue`     |
+| dueFrom      | string  | ISO date lower bound (YYYY-MM-DD)                       |
+| dueTo        | string  | ISO date upper bound (YYYY-MM-DD)                       |
+| overdue      | boolean | `true` = only overdue renewals                          |
+| upcomingDays | integer | Return renewals due within N days                       |
+| search       | string  | Search in name and renewalType                          |
+| sortBy       | string  | `dueDate`, `status`, `createdAt`, `name`               |
+| sortOrder    | string  | `asc` or `desc`                                         |
+| page         | integer | Default: 1                                              |
+| limit        | integer | Default: 20, max: 100                                   |
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "ren_uuid",
+      "customerId": 12,
+      "name": "Business Registration",
+      "renewalType": "statutory",
+      "dueDate": "2026-04-30",
+      "amount": {
+        "currency": "HKD",
+        "minor": 220000
+      },
+      "amountDisplay": "HK$2,200.00",
+      "status": "upcoming",
+      "notes": "Annual statutory renewal",
+      "lastNotifiedAt": null,
+      "createdAt": "2026-02-26T10:00:00.000Z",
+      "updatedAt": "2026-02-26T10:00:00.000Z"
+    }
+  ],
+  "meta": { "page": 1, "limit": 20, "total": 1 }
+}
+```
+
+---
+
+##### `POST /api/v1/admin/customers/:customerId/renewals`
+Create a renewal.
+
+**Permission required:** `USER_MANAGEMENT_UPDATE`
+
+**Request body:**
+```json
+{
+  "name": "Business Registration",
+  "renewalType": "statutory",
+  "dueDate": "2026-04-30",
+  "amount": {
+    "currency": "HKD",
+    "minor": 220000
+  },
+  "status": "upcoming",
+  "notes": "Annual statutory renewal"
+}
+```
+
+| Field       | Type   | Required | Rules                                               |
+|-------------|--------|----------|-----------------------------------------------------|
+| name        | string | Yes      | Non-empty, max 255 chars                            |
+| dueDate     | string | Yes      | Date string (YYYY-MM-DD)                            |
+| amount      | object | Yes      | `{ currency: string (3 chars), minor: integer >= 0 }` |
+| renewalType | string | No       | Nullable — e.g. `statutory`, `annual`, `license`    |
+| status      | string | No       | `upcoming` (default), `pending`, `current`, `overdue` |
+| notes       | string | No       | Nullable                                            |
+
+> **Amount minor units:** Store amounts in the smallest currency unit (cents). For HKD 2,200.00, send `220000`. The response includes a pre-formatted `amountDisplay` string.
+
+**Response `201`:** Created renewal object.
+
+---
+
+##### `GET /api/v1/admin/customers/:customerId/renewals/:renewalId`
+Get a single renewal.
+
+**Permission required:** `USER_MANAGEMENT_READ`
+
+---
+
+##### `PATCH /api/v1/admin/customers/:customerId/renewals/:renewalId`
+Update a renewal. All fields optional, at least one required.
+
+**Permission required:** `USER_MANAGEMENT_UPDATE`
+
+Additional updatable fields not in create:
+- `lastNotifiedAt` — ISO datetime or `null` to clear
+
+**Response `200`:** Updated renewal object.
+
+---
+
+##### `DELETE /api/v1/admin/customers/:customerId/renewals/:renewalId`
+Delete a renewal permanently.
+
+**Permission required:** `USER_MANAGEMENT_UPDATE`
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "data": { "id": "ren_uuid", "deleted": true },
+  "meta": {}
+}
+```
+
+---
+
+#### Service Requests (Admin View)
+
+Admins manage service requests through a separate set of endpoints scoped to a specific customer.
+
+---
+
+##### `GET /api/v1/admin/customers/:customerId/service-requests`
+List service requests for a customer.
+
+**Permission required:** `USER_MANAGEMENT_READ`
+
+**Query parameters:**
+
+| Parameter  | Type    | Description                                              |
+|------------|---------|----------------------------------------------------------|
+| status     | string  | Filter: `pending`, `in-progress`, `completed`, `rejected`|
+| type       | string  | Filter by request type text                              |
+| typeCode   | string  | Filter by typeCode slug                                  |
+| priority   | string  | Filter: `low`, `medium`, `high`                          |
+| assignedTo | integer | Filter by assigned admin user ID                         |
+| search     | string  | Search across id, type, description                      |
+| sortBy     | string  | `requestedAt` (default), `updatedAt`, `status`, `type`, `priority` |
+| sortOrder  | string  | `asc` or `desc`                                          |
+| page       | integer | Default: 1                                               |
+| limit      | integer | Default: 20, max: 100                                    |
+
+**Response `200`:** Same `ServiceRequest` object shape as the customer portal.
+
+> **Difference from customer portal:** Admin sees `internalNotes` in addition to `adminNotes`.
+
+---
+
+##### `GET /api/v1/admin/customers/:customerId/service-requests/:requestId`
+Get a single service request (admin view, includes `internalNotes`).
+
+**Permission required:** `USER_MANAGEMENT_READ`
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "sr_uuid",
+    "customerId": 12,
+    "type": "Change of Directors",
+    "typeCode": "change_directors",
+    "description": "Please update the director list.",
+    "status": "in-progress",
+    "priority": "medium",
+    "requestedByUserId": 12,
+    "assignedToAdminId": 5,
+    "adminNotes": "Received documents. Filing in progress.",
+    "internalNotes": "Checked with compliance team.",
+    "requestedAt": "2026-02-26T11:00:00.000Z",
+    "resolvedAt": null,
+    "createdAt": "2026-02-26T11:00:00.000Z",
+    "updatedAt": "2026-02-26T12:00:00.000Z"
+  },
+  "meta": {}
+}
+```
+
+---
+
+##### `PATCH /api/v1/admin/customers/:customerId/service-requests/:requestId`
+Update a service request (admin workflow).
+
+**Permission required:** `USER_MANAGEMENT_UPDATE`
+
+**Request body** (at least one field required):
+```json
+{
+  "status": "in-progress",
+  "adminNotes": "Received documents. Filing in progress.",
+  "internalNotes": "Checked with compliance team.",
+  "assignedToAdminId": 5,
+  "priority": "high"
+}
+```
+
+| Field             | Type            | Rules                                               |
+|-------------------|-----------------|-----------------------------------------------------|
+| status            | string          | `pending`, `in-progress`, `completed`, `rejected`   |
+| adminNotes        | string \| null  | Notes visible to customer                           |
+| internalNotes     | string \| null  | Internal staff notes (not shown to customer)        |
+| assignedToAdminId | integer \| null | Admin user ID or `null` to unassign                 |
+| priority          | string          | `low`, `medium`, `high`                             |
+
+**Response `200`:** Updated service request object.
+
+---
+
+##### `GET /api/v1/admin/customers/:customerId/service-requests/:requestId/activity`
+Get the activity log for a service request (admin view — same as customer view but with access to internal notes changes).
+
+**Permission required:** `USER_MANAGEMENT_READ`
+
+---
+
+### 6.10 File Upload Routes
+
+---
+
+#### `POST /api/v1/uploads/presign`
+Get a presigned S3 URL for uploading a registration document. **Public endpoint — no auth required.**
+
+> Use this to upload stakeholder documents during the public registration form flow. For admin company document uploads, use the `/api/v1/admin/customers/:customerId/documents/upload-init` endpoint instead.
+
+**Request body:**
+```json
+{
+  "documentType": "passport",
+  "fileName": "passport.jpg",
+  "mimeType": "image/jpeg",
+  "sizeBytes": 102400
+}
+```
+
+| Field        | Type   | Required | Rules                                                         |
+|--------------|--------|----------|---------------------------------------------------------------|
+| documentType | string | Yes      | `passport`, `selfie`, `addressProof`, `certificate_of_incorporation`, `business_license`, `others` |
+| fileName     | string | Yes      | Original file name                                            |
+| mimeType     | string | Yes      | `application/pdf`, `image/jpeg`, `image/jpg`, `image/png`, `image/webp` |
+| sizeBytes    | integer| Yes      | File size in bytes. Max: **10 MB** (10485760)                 |
+
+**Response `200`:**
+```json
+{
+  "uploadUrl": "https://s3.example.com/...",
+  "key": "uploads/passport-abc123.jpg",
+  "publicUrl": "https://cdn.example.com/uploads/passport-abc123.jpg",
+  "expiresIn": 3600
+}
+```
+
+---
+
+#### `GET /api/v1/uploads/signed-url`
+Get a temporary signed URL to access a private S3 file.
+
+**Auth required:** Yes
+
+**Query parameters:**
+
+| Parameter | Type   | Description                              |
+|-----------|--------|------------------------------------------|
+| key       | string | S3 object key (from upload response)     |
+
+**Response `200`:**
+```json
+{
+  "signedUrl": "https://s3.example.com/...",
+  "expiresIn": 3600
+}
+```
+
+---
+
+## 7. Error Handling
+
+### Standard error response shapes
+
+```typescript
+// Format A — auth/middleware errors
 {
   error: string;    // Short error category
   message: string;  // Detailed description
 }
 
-// Format B (badge/user/ticket/registration controllers)
+// Format B — badge/user/ticket/registration controllers
 {
   success: false;
   error: string;    // Detailed error
   message?: string; // Additional context (optional)
+}
+
+// Format C — admin customer management controllers (new)
+{
+  success: false;
+  error: {
+    code: "VALIDATION_ERROR" | "NOT_FOUND" | "CONFLICT" | "INTERNAL_SERVER_ERROR";
+    message: string;
+    details: Array<{ field: string; message: string }>;
+  };
 }
 ```
 
@@ -1653,8 +2456,8 @@ async function apiCall(url: string, options: RequestInit) {
   if (!response.ok) {
     switch (response.status) {
       case 400:
-        // Validation error — show the error message to the user
-        throw new Error(data.error || data.message || 'Bad request');
+        // Validation error — extract message from any format
+        throw new Error(data.error?.message || data.error || data.message || 'Bad request');
       case 401:
         // Token expired or missing — redirect to login
         clearTokens();
@@ -1664,10 +2467,10 @@ async function apiCall(url: string, options: RequestInit) {
         // No permission — show "Access denied" UI
         throw new Error('You do not have permission to perform this action');
       case 404:
-        // Resource not found
-        throw new Error(data.error || 'Resource not found');
+        throw new Error(data.error?.message || data.error || 'Resource not found');
+      case 409:
+        throw new Error(data.error?.message || data.error || 'Conflict — resource already exists');
       case 500:
-        // Server error — show generic error
         throw new Error('A server error occurred. Please try again later.');
       default:
         throw new Error('An unexpected error occurred');
@@ -1680,21 +2483,22 @@ async function apiCall(url: string, options: RequestInit) {
 
 ---
 
-## 7. HTTP Status Codes
+## 8. HTTP Status Codes
 
 | Code | Meaning            | When it occurs                                               |
 |------|--------------------|--------------------------------------------------------------|
 | 200  | OK                 | Successful GET, PATCH, DELETE                                |
-| 201  | Created            | Successful POST (user, badge, ticket, or registration created) |
+| 201  | Created            | Successful POST (user, badge, ticket, registration, etc.)    |
 | 400  | Bad Request        | Missing fields, validation error, duplicate name             |
-| 401  | Unauthorized       | Missing `Authorization` header, invalid/expired JWT, wrong password |
-| 403  | Forbidden          | Valid token but user lacks required permission               |
-| 404  | Not Found          | Badge/user/ticket/registration with given ID does not exist  |
+| 401  | Unauthorized       | Missing `Authorization` header, invalid/expired JWT          |
+| 403  | Forbidden          | Valid token but wrong user type or missing permission        |
+| 404  | Not Found          | Resource with given ID does not exist                        |
+| 409  | Conflict           | Duplicate resource (e.g. company profile already exists)     |
 | 500  | Internal Server Error | Database error, unexpected exception                      |
 
 ---
 
-## 8. All 32 Permissions Reference
+## 9. All 32 Permissions Reference
 
 Permissions follow the pattern: `{MODULE}_{ACTION}`
 
@@ -1735,18 +2539,19 @@ Permissions follow the pattern: `{MODULE}_{ACTION}`
 
 ---
 
-## 9. Data Models
+## 10. Data Models
 
-### User (from `POST /users`, `GET /users`, `PATCH /users/:id`)
+### User
 
 ```typescript
 interface UserListItem {
   id: number;
   name: string;
   email: string;
-  active: 'active' | 'inactive'; // stringified boolean from DB boolean field
+  type: 'ADMIN' | 'CUSTOMER';
+  active: 'active' | 'inactive';
   role: string;                   // badge displayName(s), comma-joined
-  lastActive?: string | null;     // ISO 8601 datetime or null — only present on GET /users
+  lastActive?: string | null;     // ISO 8601 or null
 }
 ```
 
@@ -1763,19 +2568,11 @@ interface LoginResponse {
     id: number;
     email: string;
     name: string;
-    permissions: string[]; // Array of permission code strings
-    role: string | null;   // First badge's name, or null
+    type: 'ADMIN' | 'CUSTOMER';
+    permissions: string[];
+    role: string | null;
+    dashboardPath: '/admin/dashboard' | '/customer/dashboard';
   };
-}
-```
-
-### RefreshResponse
-
-```typescript
-interface RefreshResponse {
-  success: boolean;
-  accessToken: string;
-  expiresIn: number; // 900 (seconds)
 }
 ```
 
@@ -1784,35 +2581,11 @@ interface RefreshResponse {
 ```typescript
 interface Badge {
   id: number;
-  name: string;          // Internal unique identifier (e.g., "admin")
-  displayName: string;   // Human-readable name (e.g., "Administrator")
-  color: string;         // Hex color code (e.g., "#EF4444")
-  createdAt: string;     // ISO 8601 datetime string
+  name: string;
+  displayName: string;
+  color: string;         // Hex color, e.g. "#EF4444"
+  createdAt: string;     // ISO 8601
   permissions: Permission[];
-}
-```
-
-### Permission
-
-```typescript
-interface Permission {
-  id: number;
-  code: string;          // e.g., "REGISTRATIONS_READ"
-  displayName: string;   // e.g., "Read Registrations"
-  description?: string;  // Longer description (returned from GET /permissions only)
-}
-```
-
-### BadgePermissionsMap (from `GET /badges/:id/permissions`)
-
-```typescript
-interface BadgePermissionsMap {
-  success: boolean;
-  badgeId: number;
-  badgeName: string;
-  badgeDisplayName: string;
-  permissions: Record<string, boolean>;
-  // All 32 permission codes as keys, boolean values
 }
 ```
 
@@ -1826,35 +2599,35 @@ interface Ticket {
   client: { id: number; name: string; email: string };
   priority: 'HIGH' | 'MEDIUM' | 'LOW';
   status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED';
-  createdAt: string;                   // ISO 8601
+  createdAt: string;
   assignedToId: number | null;
   assignedTo: { id: number; name: string; email: string } | null;
 }
 ```
 
-### RegistrationListItem (from `GET /api/v1/registrations`)
+### RegistrationListItem
 
 ```typescript
 interface RegistrationListItem {
   id: string;            // UUID
-  clientName: string;    // applicantFirstName + ' ' + applicantLastName
+  clientName: string;
   clientEmail: string;
   phone: string;
   type: string;          // companyType
   status: 'pending' | 'in-progress' | 'completed';
-  assignedTo: string;    // Admin user name, or "Unassigned"
-  submittedDate: string; // ISO 8601
-  lastUpdated: string;   // ISO 8601
-  documents: number;     // Count of RegistrationDocuments
+  assignedTo: string;    // Admin name or "Unassigned"
+  submittedDate: string;
+  lastUpdated: string;
+  documents: number;     // count
   documentList: RegistrationDocument[];
 }
 ```
 
-### RegistrationDetail (from `GET /api/v1/registrations/:id` and `PATCH`)
+### RegistrationDetail
 
 ```typescript
 interface RegistrationDetail {
-  id: string;            // UUID
+  id: string;
   status: 'pending' | 'in-progress' | 'completed';
   assignedToId: number | null;
   assignedTo: { id: number; name: string; email: string } | null;
@@ -1898,7 +2671,7 @@ interface RegistrationDetail {
 ```typescript
 interface Stakeholder {
   id: number;
-  registrationId: string; // UUID
+  registrationId: string;
   type: 'individual' | 'corporate';
   roles: ('shareholder' | 'director')[];
   fullName: string | null;
@@ -1916,6 +2689,9 @@ interface Stakeholder {
   numberOfShares: number | null;
   sharePercentage: number | null;
   documents: RegistrationDocument[];
+  // Admin customer management endpoints also include:
+  hasDocuments?: boolean;
+  documentsCount?: number;
 }
 ```
 
@@ -1924,25 +2700,143 @@ interface Stakeholder {
 ```typescript
 interface RegistrationDocument {
   id: number;
-  registrationId: string; // UUID
+  registrationId: string;
   stakeholderId: number | null;
   documentType: 'passport' | 'selfie' | 'addressProof' | 'certificate_of_incorporation' | 'business_license' | 'others';
   fileKey: string | null;
   fileUrl: string;
   fileName: string | null;
   mimeType: string | null;
-  fileSize: number | null;   // bytes
+  fileSize: number | null;
   verificationStatus: 'pending' | 'approved' | 'rejected';
   rejectionReason: string | null;
-  uploadedBy: number | null; // User ID
-  verifiedBy: number | null; // User ID
-  createdAt: string;         // ISO 8601
+  uploadedBy: number | null;
+  verifiedBy: number | null;
+  createdAt: string;
+}
+```
+
+### CustomerCompanyProfile
+
+```typescript
+interface CustomerCompanyProfile {
+  id: string;                       // UUID
+  customerId: number;
+  registrationId: string | null;    // UUID of linked registration
+  companyName: string;
+  businessNature: string;
+  businessEmail: string;
+  phoneNumber: string;
+  registeredOfficeAddress: string;
+  companyType: string | null;
+  countryOfIncorporation: string | null;
+  businessRegistrationNumber: string | null;
+  incorporationDate: string | null; // YYYY-MM-DD
+  status: string | null;
+  source: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+```
+
+### CustomerCompanyDocument
+
+```typescript
+interface CustomerCompanyDocument {
+  id: string;                       // UUID
+  customerId: number;
+  registrationId: string | null;
+  stakeholderId: number | null;
+  category: string;
+  documentType: string | null;
+  name: string;
+  fileKey: string | null;
+  fileName: string | null;
+  fileUrl: string | null;
+  mimeType: string | null;
+  fileSize: number | null;          // bytes
+  etag: string | null;
+  status: 'pending_upload' | 'uploaded' | 'failed' | 'deleted';
+  uploadedBy: number | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;         // null unless soft-deleted
+}
+```
+
+### CustomerRenewal
+
+```typescript
+interface CustomerRenewal {
+  id: string;           // UUID
+  customerId: number;
+  name: string;
+  renewalType: string | null;
+  dueDate: string;      // YYYY-MM-DD
+  amount: {
+    currency: string;   // 3-letter ISO code, e.g. "HKD"
+    minor: number;      // Amount in smallest currency unit (cents)
+  };
+  amountDisplay: string; // Pre-formatted, e.g. "HK$2,200.00"
+  status: 'upcoming' | 'pending' | 'current' | 'overdue';
+  notes: string | null;
+  lastNotifiedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+```
+
+### CustomerServiceRequest
+
+```typescript
+interface CustomerServiceRequest {
+  id: string;                    // UUID
+  customerId: number;
+  type: string;                  // Human-readable request type
+  typeCode: string | null;       // Machine-readable slug
+  description: string;
+  status: 'pending' | 'in-progress' | 'completed' | 'rejected';
+  priority: 'low' | 'medium' | 'high';
+  requestedByUserId: number;
+  assignedToAdminId: number | null;
+  adminNotes: string | null;     // Visible to customer
+  internalNotes?: string | null; // Admin-only — not returned to customer portal
+  requestedAt: string;
+  resolvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+```
+
+### CustomerServiceRequestActivity
+
+```typescript
+interface CustomerServiceRequestActivity {
+  id: string;
+  serviceRequestId: string;
+  actorUserId: number;
+  actionType:
+    | 'created'
+    | 'customer_updated'
+    | 'status_changed'
+    | 'admin_notes_updated'
+    | 'internal_notes_updated'
+    | 'assignment_changed'
+    | 'priority_changed';
+  payload: Record<string, any>; // Varies by actionType
+  createdAt: string;
+  actor: {
+    id: number;
+    name: string;
+    email: string;
+    type: 'ADMIN' | 'CUSTOMER';
+  } | null;
 }
 ```
 
 ---
 
-## 10. Implementation Examples
+## 11. Implementation Examples
 
 ### Full Auth Flow (TypeScript + Fetch)
 
@@ -1970,7 +2864,15 @@ export async function login(email: string, password: string) {
   accessToken = data.accessToken;
   refreshToken = data.refreshToken;
   localStorage.setItem('refreshToken', data.refreshToken);
-  return data.user; // { id, email, name, permissions, role }
+
+  // Redirect based on user type
+  if (data.user.type === 'ADMIN') {
+    window.location.href = '/admin/dashboard';
+  } else {
+    window.location.href = '/customer/dashboard';
+  }
+
+  return data.user; // { id, email, name, type, permissions, role, dashboardPath }
 }
 
 export async function refresh() {
@@ -1986,19 +2888,6 @@ export async function refresh() {
 
   const data = await res.json();
   accessToken = data.accessToken;
-  // data.expiresIn = 900 — use this to schedule next refresh
-}
-
-export async function changePassword(currentPassword: string, newPassword: string) {
-  const res = await authorizedFetch('/auth/change-password', {
-    method: 'PATCH',
-    body: JSON.stringify({ currentPassword, newPassword }),
-  });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.message || 'Failed to change password');
-  }
-  return res.json();
 }
 
 export async function authorizedFetch(path: string, options: RequestInit = {}) {
@@ -2014,7 +2903,6 @@ export async function authorizedFetch(path: string, options: RequestInit = {}) {
   });
 
   if (res.status === 401) {
-    // Try refreshing once
     await refresh();
     return fetch(`${BASE_URL}${path}`, {
       ...options,
@@ -2030,188 +2918,177 @@ export async function authorizedFetch(path: string, options: RequestInit = {}) {
 }
 ```
 
-### Ticket Management Example
+### Customer Document Upload (Two-Step S3 Flow)
 
 ```typescript
-// tickets.ts
+// customerDocuments.ts
 
 import { authorizedFetch } from './auth';
 
-export async function getTickets(filters?: {
-  status?: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED';
-  priority?: 'HIGH' | 'MEDIUM' | 'LOW';
-  clientId?: number;
-  assignedToId?: number;
-}) {
-  const params = new URLSearchParams();
-  if (filters?.status) params.set('status', filters.status);
-  if (filters?.priority) params.set('priority', filters.priority);
-  if (filters?.clientId) params.set('clientId', String(filters.clientId));
-  if (filters?.assignedToId) params.set('assignedToId', String(filters.assignedToId));
+export async function uploadCustomerDocument(
+  customerId: number,
+  file: File,
+  meta: {
+    name: string;
+    category: string;
+    documentType?: string;
+    stakeholderId?: number | null;
+    registrationId?: string | null;
+  }
+) {
+  // Step 1: Initialize upload — get presigned URL
+  const initRes = await authorizedFetch(
+    `/api/v1/admin/customers/${customerId}/documents/upload-init`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        name: meta.name,
+        category: meta.category,
+        documentType: meta.documentType ?? null,
+        fileName: file.name,
+        mimeType: file.type,
+        fileSize: file.size,
+        stakeholderId: meta.stakeholderId ?? null,
+        registrationId: meta.registrationId ?? null,
+      }),
+    }
+  );
 
-  const res = await authorizedFetch(`/tickets?${params}`);
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to fetch tickets');
-  return data; // { success, count, tickets }
-}
+  if (!initRes.ok) {
+    const err = await initRes.json();
+    throw new Error(err.error?.message || 'Failed to initialize upload');
+  }
 
-export async function createTicket(payload: {
-  title: string;
-  clientId: number;
-  priority?: 'HIGH' | 'MEDIUM' | 'LOW';
-  assignedToId?: number;
-}) {
-  const res = await authorizedFetch('/tickets', {
-    method: 'POST',
-    body: JSON.stringify(payload),
+  const { data } = await initRes.json();
+  const { documentId, uploadUrl } = data;
+
+  // Step 2: Upload directly to S3
+  const s3Res = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type },
+    body: file,
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to create ticket');
-  return data.ticket;
-}
 
-export async function updateTicket(ticketId: number, payload: {
-  title?: string;
-  priority?: 'HIGH' | 'MEDIUM' | 'LOW';
-  status?: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED';
-  assignedToId?: number | null;
-}) {
-  const res = await authorizedFetch(`/tickets/${ticketId}`, {
-    method: 'PATCH',
-    body: JSON.stringify(payload),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to update ticket');
-  return data.ticket;
-}
+  if (!s3Res.ok) {
+    throw new Error('Failed to upload file to S3');
+  }
 
-export async function deleteTicket(ticketId: number) {
-  const res = await authorizedFetch(`/tickets/${ticketId}`, { method: 'DELETE' });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to delete ticket');
-  return data;
+  // Extract ETag from S3 response (optional but recommended)
+  const etag = s3Res.headers.get('ETag');
+
+  // Step 3: Confirm upload complete
+  const completeRes = await authorizedFetch(
+    `/api/v1/admin/customers/${customerId}/documents/${documentId}/upload-complete`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ etag }),
+    }
+  );
+
+  const result = await completeRes.json();
+  if (!completeRes.ok) throw new Error(result.error?.message || 'Failed to complete upload');
+
+  return result.data; // Finalized document metadata
 }
 ```
 
-### Registration Management Example
+### Service Request Management (Customer)
 
 ```typescript
-// registrations.ts
+// serviceRequests.ts
 
 import { authorizedFetch } from './auth';
 
-// Submit a new registration (public — no auth needed)
-export async function submitRegistration(payload: object) {
-  const res = await fetch('http://localhost:3000/api/v1/registrations', {
+export async function createServiceRequest(payload: {
+  type: string;
+  typeCode?: string;
+  description: string;
+  priority?: 'low' | 'medium' | 'high';
+}) {
+  const res = await authorizedFetch('/api/v1/customer/service-requests', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to submit registration');
-  return data.id; // UUID string
+  if (!res.ok) throw new Error(data.error?.message || 'Failed to create service request');
+  return data.data;
 }
 
-// List registrations (admin)
-export async function getRegistrations(filters?: {
-  status?: 'pending' | 'in-progress' | 'completed';
-  assignedToId?: number;
+export async function getMyServiceRequests(filters?: {
+  status?: string;
+  search?: string;
   page?: number;
   limit?: number;
 }) {
   const params = new URLSearchParams();
   if (filters?.status) params.set('status', filters.status);
-  if (filters?.assignedToId) params.set('assignedToId', String(filters.assignedToId));
+  if (filters?.search) params.set('search', filters.search);
   if (filters?.page) params.set('page', String(filters.page));
   if (filters?.limit) params.set('limit', String(filters.limit));
 
-  const res = await authorizedFetch(`/api/v1/registrations?${params}`);
+  const res = await authorizedFetch(`/api/v1/customer/service-requests?${params}`);
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to fetch registrations');
-  return data; // { success, total, page, limit, registrations }
+  if (!res.ok) throw new Error(data.error?.message || 'Failed to fetch service requests');
+  return data; // { success, data: [], meta: { page, limit, total } }
 }
 
-// Get full registration detail
-export async function getRegistration(id: string) {
-  const res = await authorizedFetch(`/api/v1/registrations/${id}`);
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Registration not found');
-  return data.registration;
-}
-
-// Update status / assign admin
-export async function updateRegistrationStatus(id: string, status: string, assignedToId?: number | null) {
-  const res = await authorizedFetch(`/api/v1/registrations/${id}`, {
+export async function updateMyServiceRequest(
+  requestId: string,
+  payload: { description?: string; priority?: string }
+) {
+  const res = await authorizedFetch(`/api/v1/customer/service-requests/${requestId}`, {
     method: 'PATCH',
-    body: JSON.stringify({ status, assignedToId }),
+    body: JSON.stringify(payload),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to update registration');
-  return data.registration;
-}
-
-// Delete registration
-export async function deleteRegistration(id: string) {
-  const res = await authorizedFetch(`/api/v1/registrations/${id}`, { method: 'DELETE' });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to delete registration');
-  return data;
+  if (!res.ok) throw new Error(data.error?.message || 'Failed to update service request');
+  return data.data;
 }
 ```
 
-### Badge Management Example
+### Admin Renewal Management
 
 ```typescript
-// badges.ts
+// renewals.ts
 
 import { authorizedFetch } from './auth';
 
-export async function getBadges() {
-  const res = await authorizedFetch('/badges');
-  if (!res.ok) throw new Error('Failed to fetch badges');
-  return res.json();
-}
-
-export async function createBadge(payload: {
-  name: string;
-  displayName: string;
-  color?: string;
-  permissionIds?: number[];
-}) {
-  const res = await authorizedFetch('/badges', {
+export async function createRenewal(
+  customerId: number,
+  payload: {
+    name: string;
+    dueDate: string;        // YYYY-MM-DD
+    amount: { currency: string; minor: number }; // minor = cents
+    renewalType?: string;
+    status?: 'upcoming' | 'pending' | 'current' | 'overdue';
+    notes?: string;
+  }
+) {
+  const res = await authorizedFetch(`/api/v1/admin/customers/${customerId}/renewals`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to create badge');
-  return data.badge;
+  if (!res.ok) throw new Error(data.error?.message || 'Failed to create renewal');
+  return data.data;
 }
 
-export async function updateBadgePermissions(badgeId: number, permissionIds: number[]) {
-  const res = await authorizedFetch(`/badges/${badgeId}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ permissionIds }),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to update badge');
-  return data.badge;
+// Helper: convert HKD amount to minor units
+export function toMinorUnits(amount: number): number {
+  return Math.round(amount * 100);
 }
 
-export async function getBadgePermissionMap(badgeId: number) {
-  const res = await authorizedFetch(`/badges/${badgeId}/permissions`);
-  if (!res.ok) throw new Error('Failed to fetch badge permissions');
-  return res.json(); // Returns { permissions: { REGISTRATIONS_READ: true, ... } }
-}
-
-export async function deleteBadge(badgeId: number) {
-  const res = await authorizedFetch(`/badges/${badgeId}`, { method: 'DELETE' });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to delete badge');
-  return data;
-}
+// Usage example:
+// await createRenewal(12, {
+//   name: "Business Registration",
+//   dueDate: "2026-04-30",
+//   amount: { currency: "HKD", minor: toMinorUnits(2200) }, // 220000
+//   renewalType: "statutory",
+//   status: "upcoming",
+// });
 ```
 
-### Permission-Aware Navigation (React Router example)
+### Permission-Aware Navigation (React Router)
 
 ```tsx
 // ProtectedRoute.tsx
@@ -2220,15 +3097,21 @@ import { useAuth } from './AuthContext';
 
 export function ProtectedRoute({
   permission,
+  userType,
   children,
 }: {
   permission?: string;
+  userType?: 'ADMIN' | 'CUSTOMER';
   children: JSX.Element;
 }) {
   const { user, isAuthenticated } = useAuth();
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (userType && user.type !== userType) {
+    return <Navigate to="/403" replace />;
   }
 
   if (permission && !user.permissions.includes(permission)) {
@@ -2242,28 +3125,24 @@ export function ProtectedRoute({
 <Routes>
   <Route path="/login" element={<LoginPage />} />
 
-  {/* Badge management */}
-  <Route path="/badges" element={<ProtectedRoute permission="BADGE_CREATION_READ"><BadgesPage /></ProtectedRoute>} />
-  <Route path="/badges/create" element={<ProtectedRoute permission="BADGE_CREATION_CREATE"><CreateBadgePage /></ProtectedRoute>} />
+  {/* Admin routes */}
+  <Route path="/admin/badges" element={<ProtectedRoute userType="ADMIN" permission="BADGE_CREATION_READ"><BadgesPage /></ProtectedRoute>} />
+  <Route path="/admin/users" element={<ProtectedRoute userType="ADMIN" permission="USER_MANAGEMENT_READ"><UsersPage /></ProtectedRoute>} />
+  <Route path="/admin/registrations" element={<ProtectedRoute userType="ADMIN" permission="REGISTRATIONS_READ"><RegistrationsPage /></ProtectedRoute>} />
+  <Route path="/admin/customers/:customerId" element={<ProtectedRoute userType="ADMIN" permission="USER_MANAGEMENT_READ"><CustomerDetailPage /></ProtectedRoute>} />
+  <Route path="/admin/tickets" element={<ProtectedRoute userType="ADMIN" permission="SUPPORT_TICKETS_READ"><TicketsPage /></ProtectedRoute>} />
 
-  {/* User management */}
-  <Route path="/users" element={<ProtectedRoute permission="USER_MANAGEMENT_READ"><UsersPage /></ProtectedRoute>} />
-  <Route path="/users/create" element={<ProtectedRoute permission="USER_MANAGEMENT_CREATE"><CreateUserPage /></ProtectedRoute>} />
-  <Route path="/users/:id/edit" element={<ProtectedRoute permission="USER_MANAGEMENT_UPDATE"><EditUserPage /></ProtectedRoute>} />
-
-  {/* Ticket management */}
-  <Route path="/tickets" element={<ProtectedRoute permission="SUPPORT_TICKETS_READ"><TicketsPage /></ProtectedRoute>} />
-  <Route path="/tickets/create" element={<ProtectedRoute permission="SUPPORT_TICKETS_CREATE"><CreateTicketPage /></ProtectedRoute>} />
-
-  {/* Registrations */}
-  <Route path="/registrations" element={<ProtectedRoute permission="REGISTRATIONS_READ"><RegistrationsPage /></ProtectedRoute>} />
-  <Route path="/registrations/:id" element={<ProtectedRoute permission="REGISTRATIONS_READ"><RegistrationDetailPage /></ProtectedRoute>} />
+  {/* Customer portal routes */}
+  <Route path="/customer/registrations" element={<ProtectedRoute userType="CUSTOMER"><MyRegistrationsPage /></ProtectedRoute>} />
+  <Route path="/customer/registrations/:id" element={<ProtectedRoute userType="CUSTOMER"><MyRegistrationDetailPage /></ProtectedRoute>} />
+  <Route path="/customer/service-requests" element={<ProtectedRoute userType="CUSTOMER" permission="SUPPORT_TICKETS_READ"><MyServiceRequestsPage /></ProtectedRoute>} />
+  <Route path="/customer/tickets" element={<ProtectedRoute userType="CUSTOMER" permission="SUPPORT_TICKETS_READ"><MyTicketsPage /></ProtectedRoute>} />
 </Routes>
 ```
 
 ---
 
-## 11. Environment Setup
+## 12. Environment Setup
 
 ### Development `.env` (never commit real secrets)
 
@@ -2299,37 +3178,77 @@ npm run dev
 |----------|--------------------------|
 | Email    | `admin@mutetaxes.com`    |
 | Password | `secure_password_123`    |
+| Type     | `ADMIN`                  |
 | Badge    | Administrator (all 32 permissions) |
 
 ---
 
 ## Appendix — Route Summary Table
 
-| Method | Path                           | Auth | Permission Required         | Description                          |
-|--------|--------------------------------|------|-----------------------------|--------------------------------------|
-| GET    | `/`                            | No   | —                           | Health check                         |
-| GET    | `/permissions`                 | No   | —                           | List all 32 permissions              |
-| POST   | `/auth/login`                  | No   | —                           | Login and receive tokens             |
-| POST   | `/auth/refresh`                | No   | —                           | Refresh access token                 |
-| GET    | `/auth/me/permissions`         | Yes  | Any authenticated user      | Get current user's permissions       |
-| PATCH  | `/auth/change-password`        | Yes  | Any authenticated user      | Change own password                  |
-| POST   | `/users`                       | Yes  | `USER_MANAGEMENT_CREATE`    | Create a new user                    |
-| GET    | `/users`                       | Yes  | `USER_MANAGEMENT_READ`      | List all users                       |
-| PATCH  | `/users/:id`                   | Yes  | `USER_MANAGEMENT_UPDATE`    | Update user name/email/password/role/active |
-| DELETE | `/users/:id`                   | Yes  | `USER_MANAGEMENT_DELETE`    | Permanently delete a user            |
-| GET    | `/badges`                      | Yes  | `BADGE_CREATION_READ`       | List all badges                      |
-| GET    | `/badges/:id`                  | Yes  | `BADGE_CREATION_READ`       | Get single badge                     |
-| POST   | `/badges`                      | Yes  | `BADGE_CREATION_CREATE`     | Create a badge                       |
-| PATCH  | `/badges/:id`                  | Yes  | `BADGE_CREATION_UPDATE`     | Update a badge                       |
-| DELETE | `/badges/:id`                  | Yes  | `BADGE_CREATION_DELETE`     | Delete a badge                       |
-| GET    | `/badges/:id/permissions`      | Yes  | `BADGE_CREATION_UPDATE`     | Get permission map for a badge       |
-| GET    | `/tickets`                     | Yes  | `SUPPORT_TICKETS_READ`      | List all tickets (filterable)        |
-| POST   | `/tickets`                     | Yes  | `SUPPORT_TICKETS_CREATE`    | Create a ticket                      |
-| GET    | `/tickets/:id`                 | Yes  | `SUPPORT_TICKETS_READ`      | Get single ticket                    |
-| PATCH  | `/tickets/:id`                 | Yes  | `SUPPORT_TICKETS_UPDATE`    | Update a ticket                      |
-| DELETE | `/tickets/:id`                 | Yes  | `SUPPORT_TICKETS_DELETE`    | Delete a ticket                      |
-| POST   | `/api/v1/registrations`        | No   | —                           | Submit new registration (public)     |
-| GET    | `/api/v1/registrations`        | Yes  | `REGISTRATIONS_READ`        | List registrations (paginated)       |
-| GET    | `/api/v1/registrations/:id`    | Yes  | `REGISTRATIONS_READ`        | Get full registration detail         |
-| PATCH  | `/api/v1/registrations/:id`    | Yes  | `REGISTRATIONS_UPDATE`      | Update registration                  |
-| DELETE | `/api/v1/registrations/:id`    | Yes  | `REGISTRATIONS_DELETE`      | Delete registration                  |
+| Method | Path                                                            | Auth Type | Permission Required      | Description                                    |
+|--------|-----------------------------------------------------------------|-----------|--------------------------|------------------------------------------------|
+| GET    | `/`                                                             | None      | —                        | Health check                                   |
+| GET    | `/health`                                                       | None      | —                        | Simple status                                  |
+| GET    | `/permissions`                                                  | None      | —                        | List all 32 permissions                        |
+| POST   | `/auth/login`                                                   | None      | —                        | Login — returns tokens + user                  |
+| POST   | `/auth/refresh`                                                 | None      | —                        | Refresh access token                           |
+| GET    | `/auth/me`                                                      | Any       | —                        | Get current user profile                       |
+| GET    | `/auth/me/permissions`                                          | Any       | —                        | Get current user's permissions                 |
+| PATCH  | `/auth/change-password`                                         | Any       | —                        | Change own password                            |
+| POST   | `/users`                                                        | Admin     | `USER_MANAGEMENT_CREATE` | Create a new user (admin or customer)          |
+| GET    | `/users`                                                        | Admin     | `USER_MANAGEMENT_READ`   | List users with filters                        |
+| PATCH  | `/users/:id`                                                    | Admin     | `USER_MANAGEMENT_UPDATE` | Update user                                    |
+| DELETE | `/users/:id`                                                    | Admin     | `USER_MANAGEMENT_DELETE` | Delete user                                    |
+| GET    | `/badges`                                                       | Admin     | `BADGE_CREATION_READ`    | List all badges                                |
+| GET    | `/badges/:id`                                                   | Admin     | `BADGE_CREATION_READ`    | Get single badge                               |
+| POST   | `/badges`                                                       | Admin     | `BADGE_CREATION_CREATE`  | Create badge                                   |
+| PATCH  | `/badges/:id`                                                   | Admin     | `BADGE_CREATION_UPDATE`  | Update badge                                   |
+| DELETE | `/badges/:id`                                                   | Admin     | `BADGE_CREATION_DELETE`  | Delete badge                                   |
+| GET    | `/badges/:id/permissions`                                       | Admin     | `BADGE_CREATION_UPDATE`  | Get badge permission map                       |
+| GET    | `/tickets`                                                      | Any       | `SUPPORT_TICKETS_READ`   | List tickets (scoped by user type)             |
+| POST   | `/tickets`                                                      | Any       | `SUPPORT_TICKETS_CREATE` | Create ticket                                  |
+| GET    | `/tickets/:id`                                                  | Any       | `SUPPORT_TICKETS_READ`   | Get single ticket                              |
+| PATCH  | `/tickets/:id`                                                  | Admin     | `SUPPORT_TICKETS_UPDATE` | Update ticket                                  |
+| DELETE | `/tickets/:id`                                                  | Admin     | `SUPPORT_TICKETS_DELETE` | Delete ticket                                  |
+| POST   | `/api/v1/registrations`                                         | None      | —                        | Submit registration (public)                   |
+| GET    | `/api/v1/registrations`                                         | Admin     | `REGISTRATIONS_READ`     | List registrations (paginated)                 |
+| GET    | `/api/v1/registrations/:id`                                     | Admin     | `REGISTRATIONS_READ`     | Get registration detail                        |
+| PATCH  | `/api/v1/registrations/:id`                                     | Admin     | `REGISTRATIONS_UPDATE`   | Update registration                            |
+| DELETE | `/api/v1/registrations/:id`                                     | Admin     | `REGISTRATIONS_DELETE`   | Delete registration                            |
+| POST   | `/api/v1/registrations/:id/claim`                               | Customer  | —                        | Customer claims registration                   |
+| PATCH  | `/api/v1/registrations/:id/customer`                            | Admin     | `REGISTRATIONS_UPDATE`   | Admin links registration to customer           |
+| GET    | `/api/v1/my-registrations`                                      | Customer  | —                        | List customer's own registrations              |
+| GET    | `/api/v1/my-registrations/:id`                                  | Customer  | —                        | Get customer's own registration detail         |
+| GET    | `/api/v1/customer/service-requests`                             | Customer  | `SUPPORT_TICKETS_READ`   | List customer's own service requests           |
+| POST   | `/api/v1/customer/service-requests`                             | Customer  | `SUPPORT_TICKETS_CREATE` | Create service request                         |
+| GET    | `/api/v1/customer/service-requests/:requestId`                  | Customer  | `SUPPORT_TICKETS_READ`   | Get customer's own service request             |
+| PATCH  | `/api/v1/customer/service-requests/:requestId`                  | Customer  | `SUPPORT_TICKETS_UPDATE` | Update service request (pending only)          |
+| GET    | `/api/v1/customer/service-requests/:requestId/activity`         | Customer  | `SUPPORT_TICKETS_READ`   | Get service request activity log               |
+| GET    | `/api/v1/admin/customers`                                      | Admin     | `USER_MANAGEMENT_READ`   | List customers for customer management table   |
+| GET    | `/api/v1/admin/customers/:customerId`                           | Admin     | `USER_MANAGEMENT_READ`   | Get customer summary                           |
+| GET    | `/api/v1/admin/customers/:customerId/company-profile`           | Admin     | `USER_MANAGEMENT_READ`   | Get company profile                            |
+| POST   | `/api/v1/admin/customers/:customerId/company-profile`           | Admin     | `USER_MANAGEMENT_UPDATE` | Create company profile                         |
+| PATCH  | `/api/v1/admin/customers/:customerId/company-profile`           | Admin     | `USER_MANAGEMENT_UPDATE` | Update company profile                         |
+| GET    | `/api/v1/admin/customers/:customerId/stakeholders`              | Admin     | `USER_MANAGEMENT_READ`   | List stakeholders                              |
+| POST   | `/api/v1/admin/customers/:customerId/stakeholders`              | Admin     | `USER_MANAGEMENT_UPDATE` | Create stakeholder                             |
+| GET    | `/api/v1/admin/customers/:customerId/stakeholders/:id`          | Admin     | `USER_MANAGEMENT_READ`   | Get stakeholder                                |
+| PATCH  | `/api/v1/admin/customers/:customerId/stakeholders/:id`          | Admin     | `USER_MANAGEMENT_UPDATE` | Update stakeholder                             |
+| DELETE | `/api/v1/admin/customers/:customerId/stakeholders/:id`          | Admin     | `USER_MANAGEMENT_UPDATE` | Delete stakeholder                             |
+| GET    | `/api/v1/admin/customers/:customerId/documents`                 | Admin     | `USER_MANAGEMENT_READ`   | List company documents                         |
+| POST   | `/api/v1/admin/customers/:customerId/documents/upload-init`     | Admin     | `USER_MANAGEMENT_UPDATE` | Init document upload (get presigned S3 URL)    |
+| POST   | `/api/v1/admin/customers/:customerId/documents/:id/upload-complete` | Admin | `USER_MANAGEMENT_UPDATE` | Complete document upload                       |
+| GET    | `/api/v1/admin/customers/:customerId/documents/:id`             | Admin     | `USER_MANAGEMENT_READ`   | Get document metadata                          |
+| GET    | `/api/v1/admin/customers/:customerId/documents/:id/download-url`| Admin     | `USER_MANAGEMENT_READ`   | Get signed download URL                        |
+| PATCH  | `/api/v1/admin/customers/:customerId/documents/:id`             | Admin     | `USER_MANAGEMENT_UPDATE` | Update document metadata                       |
+| DELETE | `/api/v1/admin/customers/:customerId/documents/:id`             | Admin     | `USER_MANAGEMENT_UPDATE` | Soft-delete document                           |
+| GET    | `/api/v1/admin/customers/:customerId/renewals`                  | Admin     | `USER_MANAGEMENT_READ`   | List renewals                                  |
+| POST   | `/api/v1/admin/customers/:customerId/renewals`                  | Admin     | `USER_MANAGEMENT_UPDATE` | Create renewal                                 |
+| GET    | `/api/v1/admin/customers/:customerId/renewals/:renewalId`       | Admin     | `USER_MANAGEMENT_READ`   | Get renewal                                    |
+| PATCH  | `/api/v1/admin/customers/:customerId/renewals/:renewalId`       | Admin     | `USER_MANAGEMENT_UPDATE` | Update renewal                                 |
+| DELETE | `/api/v1/admin/customers/:customerId/renewals/:renewalId`       | Admin     | `USER_MANAGEMENT_UPDATE` | Delete renewal                                 |
+| GET    | `/api/v1/admin/customers/:customerId/service-requests`          | Admin     | `USER_MANAGEMENT_READ`   | List customer service requests (admin view)    |
+| GET    | `/api/v1/admin/customers/:customerId/service-requests/:id`      | Admin     | `USER_MANAGEMENT_READ`   | Get service request (admin view)               |
+| PATCH  | `/api/v1/admin/customers/:customerId/service-requests/:id`      | Admin     | `USER_MANAGEMENT_UPDATE` | Update service request (admin)                 |
+| GET    | `/api/v1/admin/customers/:customerId/service-requests/:id/activity` | Admin | `USER_MANAGEMENT_READ`   | Get service request activity log               |
+| POST   | `/api/v1/uploads/presign`                                       | None      | —                        | Get S3 presigned PUT URL (registration docs)   |
+| GET    | `/api/v1/uploads/signed-url`                                    | Any       | —                        | Get S3 signed GET URL for private file         |

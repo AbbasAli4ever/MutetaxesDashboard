@@ -27,6 +27,7 @@ interface UserListItem {
   id: number;
   name: string;
   email: string;
+  type?: "ADMIN" | "CUSTOMER";
   active: "active" | "inactive";
   role: string; // badge displayName(s), comma-joined
   lastActive: string | null; // ISO 8601 or null
@@ -124,7 +125,10 @@ export default function UserManagement() {
       const res = await authFetch(`${API_BASE}/users`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || data.message || "Failed to fetch users");
-      setUsers(data.users);
+      const adminUsers = (data.users || []).filter(
+        (user: UserListItem) => user.type === "ADMIN"
+      );
+      setUsers(adminUsers);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch users");
     } finally {

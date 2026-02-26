@@ -26,8 +26,8 @@ export default function SignInForm() {
     setIsLoading(true);
 
     try {
-      await login({ email, password });
-      router.push("/admin/dashboard");
+      const dashboardPath = await login({ email, password });
+      router.push(dashboardPath ?? "/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed. Please try again.");
     } finally {

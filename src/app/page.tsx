@@ -6,7 +6,7 @@ import { useAuth } from "@/context/AuthContext";
 
 export default function RootPage() {
   const router = useRouter();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
 
   useEffect(() => {
     if (isLoading) return;
@@ -16,13 +16,13 @@ export default function RootPage() {
       return;
     }
 
-    const savedRole = localStorage.getItem("dashboardRole");
-    if (savedRole === "admin") {
+    // Route based on server-provided user type
+    if (user?.type === "ADMIN") {
       router.replace("/admin/dashboard");
     } else {
       router.replace("/dashboard");
     }
-  }, [isAuthenticated, isLoading, router]);
+  }, [isAuthenticated, isLoading, user, router]);
 
   return null;
 }

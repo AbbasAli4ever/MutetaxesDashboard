@@ -11,10 +11,11 @@ import {
   getValidAccessToken,
   refreshAccessToken,
   isTokenExpired,
+  API_BASE_URL,
 } from "@/lib/auth";
 
 interface AuthContextType extends AuthState {
-  login: (credentials: LoginCredentials) => Promise<void>;
+  login: (credentials: LoginCredentials) => Promise<string>;
   logout: () => void;
   getToken: () => Promise<string | null>;
   hasPermission: (permission: string) => boolean;
@@ -30,6 +31,30 @@ export const useAuth = () => {
   return context;
 };
 
+// Map backend dashboardPath to actual frontend route
+// Backend returns "/customer/dashboard" but frontend route is "/dashboard"
+// Backend returns "/admin/dashboard" which matches frontend route directly
+const resolveDashboardPath = (backendPath: string, userType: "ADMIN" | "CUSTOMER"): string => {
+  if (userType === "CUSTOMER") return "/dashboard";
+  if (userType === "ADMIN") return "/admin/dashboard";
+  return backendPath;
+};
+
+// Fetch fresh user data from the server using GET /auth/me
+const fetchCurrentUser = async (accessToken: string): Promise<User | null> => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/auth/me`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    // Backend returns either { user: {...} } or the user object directly
+    return data.user ?? data;
+  } catch {
+    return null;
+  }
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
@@ -41,42 +66,58 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     isLoading: true,
   });
 
-  // Initialize auth state from cookies on mount
+  // Initialize auth state from cookies on mount, then rehydrate from /auth/me
   useEffect(() => {
     const initializeAuth = async () => {
       try {
-        const accessToken = getAccessToken();
-        const user = getUserData();
+        let accessToken = getAccessToken();
+        const cachedUser = getUserData();
 
-        if (accessToken && user) {
-          // Check if token is expired and try to refresh
-          if (isTokenExpired(accessToken)) {
-            const refreshResult = await refreshAccessToken();
-            if (refreshResult?.accessToken) {
-              setState({
-                user,
-                accessToken: refreshResult.accessToken,
-                refreshToken: null,
-                isAuthenticated: true,
-                isLoading: false,
-              });
-            } else {
-              // Refresh failed, clear auth
-              clearAuthData();
-              setState({
-                user: null,
-                accessToken: null,
-                refreshToken: null,
-                isAuthenticated: false,
-                isLoading: false,
-              });
-            }
+        if (!accessToken && !cachedUser) {
+          setState((prev) => ({ ...prev, isLoading: false }));
+          return;
+        }
+
+        // If token is expired, try to refresh first
+        if (accessToken && isTokenExpired(accessToken)) {
+          const refreshResult = await refreshAccessToken();
+          if (refreshResult?.accessToken) {
+            accessToken = refreshResult.accessToken;
           } else {
+            clearAuthData();
+            setState({
+              user: null,
+              accessToken: null,
+              refreshToken: null,
+              isAuthenticated: false,
+              isLoading: false,
+            });
+            return;
+          }
+        }
+
+        if (accessToken) {
+          // Rehydrate from server to get fresh user.type, dashboardPath, permissions
+          const freshUser = await fetchCurrentUser(accessToken);
+          const user = freshUser ?? cachedUser;
+
+          if (user) {
+            // Persist fresh user data to cookie
+            setUserData(user);
             setState({
               user,
               accessToken,
               refreshToken: null,
               isAuthenticated: true,
+              isLoading: false,
+            });
+          } else {
+            clearAuthData();
+            setState({
+              user: null,
+              accessToken: null,
+              refreshToken: null,
+              isAuthenticated: false,
               isLoading: false,
             });
           }
@@ -92,11 +133,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     initializeAuth();
   }, []);
 
-  // Set up automatic token refresh
+  // Set up automatic token refresh every 5 minutes
   useEffect(() => {
     if (!state.isAuthenticated || !state.accessToken) return;
 
-    // Check token expiry and refresh proactively
     const checkAndRefreshToken = async () => {
       if (state.accessToken && isTokenExpired(state.accessToken)) {
         const refreshResult = await refreshAccessToken();
@@ -106,47 +146,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
             accessToken: refreshResult.accessToken,
           }));
         } else {
-          // Refresh failed, logout
           logout();
         }
       }
     };
 
-    // Check every 5 minutes
     const intervalId = setInterval(checkAndRefreshToken, 5 * 60 * 1000);
-
     return () => clearInterval(intervalId);
   }, [state.isAuthenticated, state.accessToken]);
 
-  const login = useCallback(async (credentials: LoginCredentials) => {
-    try {
-      const response = await loginApi(credentials.email, credentials.password);
+  // Returns dashboardPath so the caller (SignInForm) can navigate immediately
+  const login = useCallback(async (credentials: LoginCredentials): Promise<string> => {
+    const response = await loginApi(credentials.email, credentials.password);
 
-      if (response.success) {
-        // Save tokens to cookies
-        setTokens(response.accessToken, response.refreshToken);
-        // Save user data to cookies
-        setUserData(response.user);
+    if (response.success) {
+      setTokens(response.accessToken, response.refreshToken);
+      setUserData(response.user);
 
-        setState({
-          user: response.user,
-          accessToken: response.accessToken,
-          refreshToken: response.refreshToken,
-          isAuthenticated: true,
-          isLoading: false,
-        });
-      } else {
-        throw new Error("Login failed");
-      }
-    } catch (error) {
-      console.error("Login error:", error);
-      throw error;
+      setState({
+        user: response.user,
+        accessToken: response.accessToken,
+        refreshToken: response.refreshToken,
+        isAuthenticated: true,
+        isLoading: false,
+      });
+
+      return resolveDashboardPath(response.user.dashboardPath, response.user.type);
     }
+
+    throw new Error("Login failed");
   }, []);
 
   const logout = useCallback(() => {
     clearAuthData();
-    // Clear role so the next login starts fresh
     if (typeof window !== "undefined") {
       localStorage.removeItem("dashboardRole");
     }
@@ -166,7 +198,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const hasPermission = useCallback(
     (permission: string): boolean => {
       if (!state.user?.permissions) return false;
-      // Case-insensitive permission check
       const normalizedPermission = permission.toUpperCase();
       return state.user.permissions.some(
         (p) => p.toUpperCase() === normalizedPermission

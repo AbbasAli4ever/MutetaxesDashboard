@@ -41,6 +41,12 @@ import {
   useModulePermission,
 } from "@/context/PermissionContext";
 import { authFetch, API_BASE_URL } from "@/lib/auth";
+import {
+  CustomerOnboardingFlowError,
+  runCustomerOnboardingFlow,
+  type CustomerOnboardingDocumentInput,
+} from "@/lib/customer-onboarding";
+import DatePicker from "@/components/form/date-picker";
 import Checkbox from "@/components/form/input/Checkbox";
 import Radio from "@/components/form/input/Radio";
 
@@ -96,6 +102,7 @@ interface ApiRegistrationDetail {
   applicantPhone: string;
   countryOfIncorporation: string | null;
   companyType: string | null;
+  businessRegistrationNumber: string | null;
   proposedCompanyName: string;
   alternativeNames: string[];
   natureOfBusiness: string[];
@@ -181,6 +188,7 @@ interface RegistrationDetail {
   company: {
     countryOfIncorporation: string;
     type: string;
+    businessRegistrationNumber: string;
     proposedCompanyName: string;
     alternativeNames: string[];
     natureOfBusiness: string[];
@@ -288,6 +296,7 @@ function mapApiToUi(api: ApiRegistrationDetail): RegistrationDetail {
     company: {
       countryOfIncorporation: api.countryOfIncorporation || "",
       type: api.companyType || "",
+      businessRegistrationNumber: api.businessRegistrationNumber || "",
       proposedCompanyName: api.proposedCompanyName,
       alternativeNames: api.alternativeNames || [],
       natureOfBusiness: api.natureOfBusiness || [],
@@ -388,6 +397,35 @@ const inputErrCls = "w-full px-3 py-2 text-sm bg-gray-50 dark:bg-gray-800 border
 
 function isValidEmail(v: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
+}
+
+function completionDocsToUpload(
+  form: CompanySetupForm,
+  registrationId: string
+): CustomerOnboardingDocumentInput[] {
+  const mappings: Array<{
+    file: CompanyDocFile | null;
+    name: string;
+    category: string;
+    documentType: string;
+  }> = [
+    { file: form.certificateOfIncorporation, name: "Certificate of Incorporation", category: "Incorporation", documentType: "certificate_of_incorporation" },
+    { file: form.businessRegistration, name: "Business Registration", category: "Registration", documentType: "business_registration_certificate" },
+    { file: form.articlesOfAssociation, name: "Articles of Association", category: "Constitution", documentType: "articles_of_association" },
+    { file: form.annualReturn, name: "Annual Return", category: "Statutory", documentType: "annual_return" },
+    { file: form.boardResolution, name: "Board Resolution", category: "Statutory", documentType: "board_resolution" },
+    { file: form.otherDocuments, name: "Other Documents", category: "Other", documentType: "other" },
+  ];
+
+  return mappings
+    .filter((item) => item.file)
+    .map((item) => ({
+      name: item.name,
+      category: item.category,
+      documentType: item.documentType,
+      file: item.file!.file,
+      registrationId,
+    }));
 }
 
 function SectionCard({
@@ -2251,7 +2289,8 @@ function CreateLoginModal({
   };
   const valid = Object.values(errors).every((e) => !e);
 
-  const set = (k: keyof CreateLoginForm) => (v: string) => setForm((p) => ({ ...p, [k]: v }));
+  const set = <K extends keyof CreateLoginForm>(k: K) => (v: CreateLoginForm[K]) =>
+    setForm((p) => ({ ...p, [k]: v }));
 
   function handleNext() {
     setTouched(true);
@@ -2430,12 +2469,15 @@ interface CompanyDocFile {
 
 interface CompanySetupForm {
   companyName: string;
+  companyType: string;
+  countryOfIncorporation: string;
+  businessRegistrationNumber: string;
+  incorporationDate: string;
+  status: string;
   businessNature: string;
   businessEmail: string;
   phoneNumber: string;
   registeredOfficeAddress: string;
-  directors: string;
-  shareholders: string;
   // Documents
   certificateOfIncorporation: CompanyDocFile | null;
   businessRegistration: CompanyDocFile | null;
@@ -2537,6 +2579,7 @@ function CompanySetupModal({
   onBack,
   onClose,
   submitting,
+  submittingLabel,
 }: {
   reg: RegistrationDetail;
   loginForm: CreateLoginForm;
@@ -2544,56 +2587,42 @@ function CompanySetupModal({
   onBack: () => void;
   onClose: () => void;
   submitting: boolean;
+  submittingLabel?: string;
 }) {
-  // Pre-fill from registration
-  const directors = reg.persons
-    .filter((p) => p.roles.includes("director"))
-    .map((p) => p.fullName || p.companyName)
-    .filter(Boolean)
-    .join(", ");
-
-  const shareholders = reg.persons
-    .filter((p) => p.roles.includes("shareholder"))
-    .map((p) => {
-      const name = p.fullName || p.companyName;
-      const pct = p.shareholding.percentage;
-      return pct > 0 ? `${name} (${pct}%)` : name;
-    })
-    .filter(Boolean)
-    .join(", ");
-
   const [form, setForm] = useState<CompanySetupForm>({
-    companyName: reg.company.proposedCompanyName,
-    businessNature: reg.company.natureOfBusiness.join(", "),
-    businessEmail: reg.applicant.email,
-    phoneNumber: reg.applicant.phone,
-    registeredOfficeAddress: [
+    companyName:                reg.company.proposedCompanyName,
+    companyType:                reg.company.type,
+    countryOfIncorporation:     reg.company.countryOfIncorporation,
+    businessRegistrationNumber: reg.company.businessRegistrationNumber,
+    incorporationDate:          "",
+    status:                     reg.status,
+    businessNature:             reg.company.natureOfBusiness.join(", "),
+    businessEmail:              reg.applicant.email,
+    phoneNumber:                reg.applicant.phone,
+    registeredOfficeAddress:    [
       reg.billing.address.street,
       reg.billing.address.city,
       reg.billing.address.state,
       reg.billing.address.postalCode,
       reg.billing.address.country,
     ].filter(Boolean).join(", "),
-    directors,
-    shareholders,
     certificateOfIncorporation: null,
-    businessRegistration: null,
-    articlesOfAssociation: null,
-    annualReturn: null,
-    boardResolution: null,
-    otherDocuments: null,
+    businessRegistration:       null,
+    articlesOfAssociation:      null,
+    annualReturn:               null,
+    boardResolution:            null,
+    otherDocuments:             null,
   });
 
   const [touched, setTouched] = useState(false);
 
   const errors = {
-    companyName: !form.companyName.trim() ? "Required" : "",
-    businessNature: !form.businessNature.trim() ? "Required" : "",
-    businessEmail: !form.businessEmail.trim() ? "Required" : !isValidEmail(form.businessEmail) ? "Invalid email" : "",
-    phoneNumber: !form.phoneNumber.trim() ? "Required" : "",
+    companyName:             !form.companyName.trim()             ? "Required" : "",
+    companyType:             !form.companyType.trim()             ? "Required" : "",
+    businessNature:          !form.businessNature.trim()          ? "Required" : "",
+    businessEmail:           !form.businessEmail.trim()           ? "Required" : !isValidEmail(form.businessEmail) ? "Invalid email" : "",
+    phoneNumber:             !form.phoneNumber.trim()             ? "Required" : "",
     registeredOfficeAddress: !form.registeredOfficeAddress.trim() ? "Required" : "",
-    directors: !form.directors.trim() ? "Required" : "",
-    shareholders: !form.shareholders.trim() ? "Required" : "",
   };
   const valid = Object.values(errors).every((e) => !e);
 
@@ -2657,65 +2686,96 @@ function CompanySetupModal({
             </div>
 
             <div className="grid grid-cols-1 gap-4">
-              {/* Company Name */}
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
-                  Company Name <span className="text-error-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={form.companyName}
-                  onChange={(e) => set("companyName")(e.target.value)}
-                  className={touched && errors.companyName ? inputErrCls : inputCls}
-                />
-                {touched && errors.companyName && <p className="mt-1 text-xs text-error-500">{errors.companyName}</p>}
+
+              {/* Row: Company Name + Company Type */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                    Company Name <span className="text-error-500">*</span>
+                    <span className="ml-1.5 text-[10px] text-brand-500 font-normal">auto-filled</span>
+                  </label>
+                  <input type="text" value={form.companyName} onChange={(e) => set("companyName")(e.target.value)} className={touched && errors.companyName ? inputErrCls : inputCls} />
+                  {touched && errors.companyName && <p className="mt-1 text-xs text-error-500">{errors.companyName}</p>}
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                    Company Type <span className="text-error-500">*</span>
+                    <span className="ml-1.5 text-[10px] text-brand-500 font-normal">auto-filled</span>
+                  </label>
+                  <input type="text" value={form.companyType} onChange={(e) => set("companyType")(e.target.value)} placeholder="e.g. Private Limited, LLC…" className={touched && errors.companyType ? inputErrCls : inputCls} />
+                  {touched && errors.companyType && <p className="mt-1 text-xs text-error-500">{errors.companyType}</p>}
+                </div>
               </div>
 
-              {/* Business Nature */}
+              {/* Row: Business Registration Number + Status */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                    Business Registration Number
+                    <span className="ml-1.5 text-[10px] text-brand-500 font-normal">auto-filled</span>
+                  </label>
+                  <input type="text" value={form.businessRegistrationNumber} onChange={(e) => set("businessRegistrationNumber")(e.target.value)} placeholder="e.g. 12345678-000-01-26-5" className={inputCls} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                    Status
+                    <span className="ml-1.5 text-[10px] text-brand-500 font-normal">auto-filled</span>
+                  </label>
+                  <input type="text" value={form.status} onChange={(e) => set("status")(e.target.value)} placeholder="e.g. pending, in-progress…" className={inputCls} />
+                </div>
+              </div>
+
+              {/* Incorporation Date */}
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
+                  Incorporation Date
+                </label>
+                <DatePicker
+                  id="reg-company-setup-incorporation-date"
+                  mode="single"
+                  placeholder="Select incorporation date"
+                  defaultDate={form.incorporationDate || undefined}
+                  onChange={(dates) => {
+                    const d = dates[0];
+                    if (d) {
+                      const iso = d.toISOString().split("T")[0];
+                      setForm((p) => ({ ...p, incorporationDate: iso }));
+                    }
+                  }}
+                />
+              </div>
+
+              {/* Nature of Business */}
               <div>
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
                   Nature of Business <span className="text-error-500">*</span>
+                  <span className="ml-1.5 text-[10px] text-brand-500 font-normal">auto-filled</span>
                 </label>
-                <textarea
-                  value={form.businessNature}
-                  onChange={(e) => set("businessNature")(e.target.value)}
-                  rows={2}
-                  className={(touched && errors.businessNature ? inputErrCls : inputCls) + " resize-none"}
-                />
+                <textarea value={form.businessNature} onChange={(e) => set("businessNature")(e.target.value)} rows={2} className={(touched && errors.businessNature ? inputErrCls : inputCls) + " resize-none"} />
                 {touched && errors.businessNature && <p className="mt-1 text-xs text-error-500">{errors.businessNature}</p>}
               </div>
 
+              {/* Business Email + Phone */}
               <div className="grid grid-cols-2 gap-4">
-                {/* Business Email */}
                 <div>
                   <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
                     Business Email <span className="text-error-500">*</span>
+                    <span className="ml-1.5 text-[10px] text-brand-500 font-normal">auto-filled</span>
                   </label>
                   <div className="relative">
                     <LuMail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input
-                      type="email"
-                      value={form.businessEmail}
-                      onChange={(e) => set("businessEmail")(e.target.value)}
-                      className={(touched && errors.businessEmail ? inputErrCls : inputCls) + " pl-9"}
-                    />
+                    <input type="email" value={form.businessEmail} onChange={(e) => set("businessEmail")(e.target.value)} className={(touched && errors.businessEmail ? inputErrCls : inputCls) + " pl-9"} />
                   </div>
                   {touched && errors.businessEmail && <p className="mt-1 text-xs text-error-500">{errors.businessEmail}</p>}
                 </div>
-
-                {/* Phone Number */}
                 <div>
                   <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
                     Phone Number <span className="text-error-500">*</span>
+                    <span className="ml-1.5 text-[10px] text-brand-500 font-normal">auto-filled</span>
                   </label>
                   <div className="relative">
                     <LuPhone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input
-                      type="tel"
-                      value={form.phoneNumber}
-                      onChange={(e) => set("phoneNumber")(e.target.value)}
-                      className={(touched && errors.phoneNumber ? inputErrCls : inputCls) + " pl-9"}
-                    />
+                    <input type="tel" value={form.phoneNumber} onChange={(e) => set("phoneNumber")(e.target.value)} className={(touched && errors.phoneNumber ? inputErrCls : inputCls) + " pl-9"} />
                   </div>
                   {touched && errors.phoneNumber && <p className="mt-1 text-xs text-error-500">{errors.phoneNumber}</p>}
                 </div>
@@ -2725,48 +2785,24 @@ function CompanySetupModal({
               <div>
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
                   Registered Office Address <span className="text-error-500">*</span>
+                  <span className="ml-1.5 text-[10px] text-brand-500 font-normal">auto-filled</span>
                 </label>
                 <div className="relative">
                   <LuMapPin className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
-                  <textarea
-                    value={form.registeredOfficeAddress}
-                    onChange={(e) => set("registeredOfficeAddress")(e.target.value)}
-                    rows={2}
-                    className={(touched && errors.registeredOfficeAddress ? inputErrCls : inputCls) + " resize-none pl-9"}
-                  />
+                  <textarea value={form.registeredOfficeAddress} onChange={(e) => set("registeredOfficeAddress")(e.target.value)} rows={2} className={(touched && errors.registeredOfficeAddress ? inputErrCls : inputCls) + " resize-none pl-9"} />
                 </div>
                 {touched && errors.registeredOfficeAddress && <p className="mt-1 text-xs text-error-500">{errors.registeredOfficeAddress}</p>}
               </div>
 
-              {/* Directors */}
+              {/* Country of Incorporation */}
               <div>
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
-                  Directors <span className="text-error-500">*</span>
+                  Country of Incorporation
+                  <span className="ml-1.5 text-[10px] text-brand-500 font-normal">auto-filled</span>
                 </label>
-                <textarea
-                  value={form.directors}
-                  onChange={(e) => set("directors")(e.target.value)}
-                  rows={2}
-                  placeholder="e.g. John Smith, Jane Doe"
-                  className={(touched && errors.directors ? inputErrCls : inputCls) + " resize-none"}
-                />
-                {touched && errors.directors && <p className="mt-1 text-xs text-error-500">{errors.directors}</p>}
+                <input type="text" value={form.countryOfIncorporation} onChange={(e) => set("countryOfIncorporation")(e.target.value)} placeholder="e.g. Hong Kong" className={inputCls} />
               </div>
 
-              {/* Shareholders */}
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">
-                  Shareholders with Shareholding % <span className="text-error-500">*</span>
-                </label>
-                <textarea
-                  value={form.shareholders}
-                  onChange={(e) => set("shareholders")(e.target.value)}
-                  rows={2}
-                  placeholder="e.g. John Smith (60%), Jane Doe (40%)"
-                  className={(touched && errors.shareholders ? inputErrCls : inputCls) + " resize-none"}
-                />
-                {touched && errors.shareholders && <p className="mt-1 text-xs text-error-500">{errors.shareholders}</p>}
-              </div>
             </div>
           </div>
 
@@ -2857,7 +2893,7 @@ function CompanySetupModal({
             className="inline-flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-success-500 hover:bg-success-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
           >
             {submitting ? (
-              <><LuRefreshCw className="w-4 h-4 animate-spin" /> Processing…</>
+              <><LuRefreshCw className="w-4 h-4 animate-spin" /> {submittingLabel || "Processing..."}</>
             ) : (
               <><LuCheck className="w-4 h-4" /> Complete Registration</>
             )}
@@ -2894,6 +2930,7 @@ function RegistrationDetailContent({ id }: { id: string }) {
   const [completionStep, setCompletionStep] = useState<null | 1 | 2>(null);
   const [completionLoginForm, setCompletionLoginForm] = useState<CreateLoginForm | null>(null);
   const [completionSubmitting, setCompletionSubmitting] = useState(false);
+  const [completionSubmittingLabel, setCompletionSubmittingLabel] = useState("");
 
   // Fetch registration detail from backend
   useEffect(() => {
@@ -2947,57 +2984,51 @@ function RegistrationDetailContent({ id }: { id: string }) {
   const handleCompletionConfirm = async (companySetup: CompanySetupForm) => {
     if (!reg || !completionLoginForm) return;
     setCompletionSubmitting(true);
+    setCompletionSubmittingLabel("Starting...");
     try {
-      // 1. Update registration status to completed
-      const statusRes = await authFetch(`${API_BASE_URL}/api/v1/registrations/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ status: "completed" }),
+      const result = await runCustomerOnboardingFlow({
+        registrationId: id,
+        login: {
+          firstName: completionLoginForm.firstName,
+          lastName: completionLoginForm.lastName,
+          email: completionLoginForm.email,
+          password: completionLoginForm.password,
+        },
+        companyProfile: {
+          registrationId: id,
+          companyName: companySetup.companyName,
+          businessNature: companySetup.businessNature,
+          businessEmail: companySetup.businessEmail,
+          phoneNumber: companySetup.phoneNumber,
+          registeredOfficeAddress: companySetup.registeredOfficeAddress,
+          companyType: companySetup.companyType,
+          countryOfIncorporation: companySetup.countryOfIncorporation,
+          businessRegistrationNumber: companySetup.businessRegistrationNumber,
+          incorporationDate: companySetup.incorporationDate || undefined,
+        },
+        documents: completionDocsToUpload(companySetup, id),
+        registrationStatusToSet: "completed",
+        onProgress: setCompletionSubmittingLabel,
       });
-      const statusData = await statusRes.json();
-      if (!statusRes.ok) throw new Error(statusData.error || "Failed to update status");
 
-      // 2. Upload any company documents that were provided
-      const docUploads: { documentType: string; key: string }[] = [];
-      const docEntries: Array<{ field: keyof CompanySetupForm; docType: string }> = [
-        { field: "certificateOfIncorporation", docType: "certificate_of_incorporation" },
-        { field: "businessRegistration", docType: "business_license" },
-        { field: "articlesOfAssociation", docType: "others" },
-        { field: "annualReturn", docType: "others" },
-        { field: "boardResolution", docType: "others" },
-        { field: "otherDocuments", docType: "others" },
-      ];
-
-      for (const entry of docEntries) {
-        const docFile = companySetup[entry.field] as CompanyDocFile | null;
-        if (!docFile) continue;
-        try {
-          const presignRes = await authFetch(`${API_BASE_URL}/api/v1/uploads/presign`, {
-            method: "POST",
-            body: JSON.stringify({
-              documentType: entry.docType,
-              fileName: docFile.file.name,
-              mimeType: docFile.file.type,
-              sizeBytes: docFile.file.size,
-            }),
-          });
-          if (!presignRes.ok) continue;
-          const { uploadUrl, key } = await presignRes.json();
-          await fetch(uploadUrl, { method: "PUT", headers: { "Content-Type": docFile.file.type }, body: docFile.file });
-          docUploads.push({ documentType: entry.docType, key });
-        } catch {
-          // non-fatal: continue with other docs
-        }
-      }
-
-      // 3. Update local state
       setReg((r) => r ? { ...r, status: "completed" } : r);
       setDraftStatus("completed");
       setCompletionStep(null);
       setCompletionLoginForm(null);
+      alert(
+        `Registration completed and customer created.\nCustomer ID: ${result.customerId}\nRegistration linked: ${result.registrationLinked ? "Yes" : "No"}\nCompany profile saved: ${result.companyProfileSaved ? "Yes" : "No"}\nDocuments uploaded: ${result.uploadedDocuments.length}`
+      );
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to complete registration");
+      if (err instanceof CustomerOnboardingFlowError) {
+        alert(
+          `Completion failed during ${err.step}.\n${err.message}\n\nPartial progress:\nCustomer created: ${err.partialResult.customerId ? `Yes (#${err.partialResult.customerId})` : "No"}\nRegistration linked: ${err.partialResult.registrationLinked ? "Yes" : "No"}\nCompany profile saved: ${err.partialResult.companyProfileSaved ? "Yes" : "No"}\nDocuments uploaded: ${err.partialResult.uploadedDocuments?.length ?? 0}`
+        );
+      } else {
+        alert(err instanceof Error ? err.message : "Failed to complete registration");
+      }
     } finally {
       setCompletionSubmitting(false);
+      setCompletionSubmittingLabel("");
     }
   };
 
@@ -3129,6 +3160,7 @@ function RegistrationDetailContent({ id }: { id: string }) {
         onClose={() => {
           setCompletionStep(null);
           setCompletionLoginForm(null);
+          setCompletionSubmittingLabel("");
         }}
       />
     )}
@@ -3141,8 +3173,10 @@ function RegistrationDetailContent({ id }: { id: string }) {
         onClose={() => {
           setCompletionStep(null);
           setCompletionLoginForm(null);
+          setCompletionSubmittingLabel("");
         }}
         submitting={completionSubmitting}
+        submittingLabel={completionSubmittingLabel}
       />
     )}
     <div className="space-y-6">
