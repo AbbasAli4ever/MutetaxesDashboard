@@ -1,61 +1,24 @@
 "use client";
+
 import React, { useEffect, useRef, useState } from "react";
 import { MdOutlineRemoveRedEye } from "react-icons/md";
 import { FaRegClock, FaRegCircleCheck, FaPlus } from "react-icons/fa6";
 import { RiErrorWarningLine } from "react-icons/ri";
 import { IconType } from "react-icons";
-import { LuCheck, LuChevronDown } from "react-icons/lu";
+import { LuCheck, LuChevronDown, LuRefreshCw, LuX } from "react-icons/lu";
 import { Modal } from "@/components/ui/modal";
 import { useModal } from "@/hooks/useModal";
-import { BsUpload } from "react-icons/bs";
+import {
+  createCustomerServiceRequest,
+  formatDateDisplay,
+  getCustomerServiceRequest,
+  getCustomerServiceRequestActivity,
+  listCustomerServiceRequests,
+  type CustomerServiceRequestActivityApi,
+  type CustomerServiceRequestApi,
+} from "@/components/company-management/customer-company-api";
 
-
-type RequestStatus = "pending" | "in-progress" | "completed";
-
-interface ServiceRequest {
-  title: string;
-  description: string;
-  id: string;
-  requestedDate: string;
-  updatedDate: string;
-  status: RequestStatus;
-}
-
-// Mock data for service requests
-const serviceRequests: ServiceRequest[] = [
-  {
-    title: "Change of Directors",
-    description: "Request to appoint new director - Michael Lee",
-    id: "SR-2026-001",
-    requestedDate: "5/1/2026",
-    updatedDate: "6/1/2026",
-    status: "pending",
-  },
-  {
-    title: "Registered Address Update",
-    description: "Update registered office address to new premises",
-    id: "SR-2025-045",
-    requestedDate: "20/12/2025",
-    updatedDate: "4/1/2026",
-    status: "in-progress",
-  },
-  {
-    title: "Share Transfer",
-    description: "Transfer 1000 shares from David Wong to Sarah Chen",
-    id: "SR-2025-038",
-    requestedDate: "10/12/2025",
-    updatedDate: "28/12/2025",
-    status: "completed",
-  },
-  {
-    title: "Company Name Change",
-    description: "Changed company name from Tech Ltd to Tech Innovations Ltd",
-    id: "SR-2025-029",
-    requestedDate: "15/11/2025",
-    updatedDate: "30/11/2025",
-    status: "completed",
-  },
-];
+type RequestStatus = "pending" | "in-progress" | "completed" | "rejected";
 
 const getStatusConfig = (status: RequestStatus): {
   label: string;
@@ -67,68 +30,82 @@ const getStatusConfig = (status: RequestStatus): {
 } => {
   switch (status) {
     case "pending":
-      return {
-        label: "pending",
-        bgColor: "bg-amber-50 dark:bg-amber-500/10",
-        textColor: "text-amber-600 dark:text-amber-400",
-        borderColor: "border-amber-200 dark:border-amber-500/20",
-        iconColor: "text-amber-500",
-        icon: RiErrorWarningLine,
-      };
+      return { label: "pending", bgColor: "bg-amber-50 dark:bg-amber-500/10", textColor: "text-amber-600 dark:text-amber-400", borderColor: "border-amber-200 dark:border-amber-500/20", iconColor: "text-amber-500", icon: RiErrorWarningLine };
     case "in-progress":
-      return {
-        label: "in-progress",
-        bgColor: "bg-blue-50 dark:bg-blue-500/10",
-        textColor: "text-blue-600 dark:text-blue-400",
-        borderColor: "border-blue-200 dark:border-blue-500/20",
-        iconColor: "text-blue-500",
-        icon: FaRegClock,
-      };
+      return { label: "in-progress", bgColor: "bg-blue-50 dark:bg-blue-500/10", textColor: "text-blue-600 dark:text-blue-400", borderColor: "border-blue-200 dark:border-blue-500/20", iconColor: "text-blue-500", icon: FaRegClock };
     case "completed":
-      return {
-        label: "completed",
-        bgColor: "bg-green-50 dark:bg-green-500/10",
-        textColor: "text-green-600 dark:text-green-400",
-        borderColor: "border-green-200 dark:border-green-500/20",
-        iconColor: "text-green-500",
-        icon: FaRegCircleCheck,
-      };
+      return { label: "completed", bgColor: "bg-green-50 dark:bg-green-500/10", textColor: "text-green-600 dark:text-green-400", borderColor: "border-green-200 dark:border-green-500/20", iconColor: "text-green-500", icon: FaRegCircleCheck };
+    case "rejected":
+      return { label: "rejected", bgColor: "bg-red-50 dark:bg-red-500/10", textColor: "text-red-600 dark:text-red-400", borderColor: "border-red-200 dark:border-red-500/20", iconColor: "text-red-500", icon: LuX };
   }
 };
 
-const ServiceRequestsTab: React.FC = () => {
+const serviceTypes = [
+  { value: "change_directors", label: "Change of Directors" },
+  { value: "registered_address_update", label: "Registered Address Update" },
+  { value: "share_transfer", label: "Share Transfer" },
+  { value: "company_name_change", label: "Company Name Change" },
+  { value: "other", label: "Other Corporate Service" },
+];
+
+export default function ServiceRequestsTab() {
   const { isOpen, openModal, closeModal } = useModal();
+  const [requests, setRequests] = useState<CustomerServiceRequestApi[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [selectedServiceType, setSelectedServiceType] = useState("");
   const [requestDetails, setRequestDetails] = useState("");
-  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
-
-  const serviceTypes = [
-    { value: "change-of-directors", label: "Change of Directors" },
-    { value: "registered-address", label: "Registered Address Update" },
-    { value: "share-transfer", label: "Share Transfer" },
-    { value: "name-change", label: "Company Name Change" },
-    { value: "other", label: "Other Corporate Service" },
-  ];
+  const [priority, setPriority] = useState<"low" | "medium" | "high">("medium");
   const [isServiceTypeOpen, setIsServiceTypeOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [viewingId, setViewingId] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<CustomerServiceRequestApi | null>(null);
+  const [activity, setActivity] = useState<CustomerServiceRequestActivityApi[]>([]);
+  const [viewLoading, setViewLoading] = useState(false);
+  const [apiUnavailable, setApiUnavailable] = useState(false);
   const serviceTypeRef = useRef<HTMLDivElement | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   const selectedServiceLabel =
     serviceTypes.find((type) => type.value === selectedServiceType)?.label ??
     "Select a service type";
 
-  const resetForm = () => {
-    setSelectedServiceType("");
-    setRequestDetails("");
-    setAttachedFiles([]);
-    setIsServiceTypeOpen(false);
-  };
+  function isUnavailableError(err: unknown) {
+    const msg = err instanceof Error ? err.message.toLowerCase() : "";
+    return (
+      msg.includes("404") ||
+      msg.includes("not found") ||
+      msg.includes("501") ||
+      msg.includes("not implemented") ||
+      msg.includes("cannot get") ||
+      msg.includes("route")
+    );
+  }
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    setError("");
+    setApiUnavailable(false);
+    try {
+      setRequests(await listCustomerServiceRequests());
+    } catch (err) {
+      if (isUnavailableError(err)) {
+        setApiUnavailable(true);
+        setRequests([]);
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to load service requests");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (
-        serviceTypeRef.current &&
-        !serviceTypeRef.current.contains(event.target as Node)
-      ) {
+      if (serviceTypeRef.current && !serviceTypeRef.current.contains(event.target as Node)) {
         setIsServiceTypeOpen(false);
       }
     };
@@ -136,144 +113,160 @@ const ServiceRequestsTab: React.FC = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const resetForm = () => {
+    setSelectedServiceType("");
+    setRequestDetails("");
+    setPriority("medium");
+    setIsServiceTypeOpen(false);
+  };
+
   const handleCloseModal = () => {
     resetForm();
     closeModal();
   };
 
-  const handleSubmitRequest = () => {
-    console.log("Submitting service request", {
-      serviceType: selectedServiceType,
-      requestDetails,
-      attachedFiles,
-    });
-    handleCloseModal();
+  const handleSubmitRequest = async () => {
+    if (apiUnavailable) return;
+    const service = serviceTypes.find((s) => s.value === selectedServiceType);
+    if (!service || !requestDetails.trim()) return;
+    setSubmitting(true);
+    try {
+      await createCustomerServiceRequest({
+        type: service.label,
+        typeCode: selectedServiceType === "other" ? "other" : selectedServiceType,
+        description: requestDetails.trim(),
+        priority,
+      });
+      handleCloseModal();
+      await load();
+    } catch (err) {
+      if (isUnavailableError(err)) {
+        setApiUnavailable(true);
+        handleCloseModal();
+        return;
+      }
+      alert(err instanceof Error ? err.message : "Failed to submit service request");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleSaveDraft = () => {
-    console.log("Saving service request draft", {
-      serviceType: selectedServiceType,
-      requestDetails,
-      attachedFiles,
-    });
-    handleCloseModal();
+  const openView = async (id: string) => {
+    if (apiUnavailable) return;
+    setViewingId(id);
+    setViewLoading(true);
+    try {
+      const [detail, act] = await Promise.all([
+        getCustomerServiceRequest(id),
+        getCustomerServiceRequestActivity(id).catch(() => []),
+      ]);
+      setViewing(detail);
+      setActivity(act);
+    } catch (err) {
+      if (isUnavailableError(err)) {
+        setApiUnavailable(true);
+        setViewingId(null);
+        setViewing(null);
+        setActivity([]);
+        return;
+      }
+      alert(err instanceof Error ? err.message : "Failed to load request details");
+    } finally {
+      setViewLoading(false);
+    }
   };
 
-  const handleFiles = (files: FileList | null) => {
-    if (!files) return;
-    setAttachedFiles((prev) => [...prev, ...Array.from(files)]);
-  };
-
-  const handleUploadClick = () => {
-    fileInputRef.current?.click();
-  };
   return (
     <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03] p-6">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
-            Service Requests
-          </h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            Track and manage your service requests
-          </p>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">Service Requests</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Track your requests and submit new ones</p>
         </div>
-        <button
-          onClick={openModal}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium rounded-lg transition-colors"
-        >
-          <FaPlus className="w-4 h-4" />
-          New Request
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => void load()}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+          >
+            <LuRefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+          <button
+            onClick={openModal}
+            disabled={apiUnavailable}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            <FaPlus className="w-4 h-4" />
+            New Request
+          </button>
+        </div>
       </div>
 
-      {/* Service Requests List */}
-      <div className="space-y-3">
-        {serviceRequests.map((request, index) => {
-          const statusConfig = getStatusConfig(request.status);
-          const StatusIcon = statusConfig.icon;
-
-          return (
-            <div
-              key={index}
-              className="flex items-center justify-between p-4 rounded-xl border border-gray-200 dark:border-gray-700"
-            >
-              <div className="flex items-center gap-4">
-                <div
-                  className={`shrink-0 w-10 h-10 rounded-full ${statusConfig.bgColor} flex items-center justify-center`}
+      {apiUnavailable ? (
+        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-6 text-center">
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-200">Service Requests are not available yet</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Customer service request APIs are not implemented yet.</p>
+        </div>
+      ) : error ? (
+        <div className="rounded-xl border border-error-200 bg-error-50 dark:border-error-500/20 dark:bg-error-500/10 p-4">
+          <p className="text-sm text-error-700 dark:text-error-400">{error}</p>
+        </div>
+      ) : loading ? (
+        <div className="py-10 flex items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+          <LuRefreshCw className="w-4 h-4 animate-spin" /> Loading service requests...
+        </div>
+      ) : requests.length === 0 ? (
+        <div className="py-10 text-center">
+          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">No service requests yet</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {requests.map((request) => {
+            const statusConfig = getStatusConfig(request.status);
+            const StatusIcon = statusConfig.icon;
+            return (
+              <div key={request.id} className="flex items-center justify-between p-4 rounded-xl border border-gray-200 dark:border-gray-700">
+                <div className="flex items-center gap-4 min-w-0">
+                  <div className={`shrink-0 w-10 h-10 rounded-full ${statusConfig.bgColor} flex items-center justify-center`}>
+                    <StatusIcon className={`w-5 h-5 ${statusConfig.iconColor}`} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{request.type}</h3>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${statusConfig.bgColor} ${statusConfig.textColor}`}>
+                        {statusConfig.label}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5 truncate max-w-[520px]">{request.description}</p>
+                    <div className="flex flex-wrap items-center gap-3 mt-2 text-xs text-gray-500 dark:text-gray-400">
+                      <span>ID: {request.id}</span>
+                      <span>Requested: {formatDateDisplay(request.requestedAt || request.createdAt)}</span>
+                      <span>Updated: {formatDateDisplay(request.updatedAt)}</span>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => void openView(request.id)}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                 >
-                  <StatusIcon className={`w-5 h-5 ${statusConfig.iconColor}`} />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-                      {request.title}
-                    </h3>
-                    <span
-                      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${statusConfig.bgColor} ${statusConfig.textColor}`}
-                    >
-                      {statusConfig.label}
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-                    {request.description}
-                  </p>
-                  <div className="flex items-center gap-4 mt-2 text-xs text-gray-500 dark:text-gray-400">
-                    <span>
-                      <span className="text-gray-400">ID:</span>{" "}
-                      <span className="text-gray-700 dark:text-gray-300">
-                        {request.id}
-                      </span>
-                    </span>
-                    <span className="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
-                    <span>
-                      <span className="text-gray-400">Requested:</span>{" "}
-                      <span className="text-gray-700 dark:text-gray-300">
-                        {request.requestedDate}
-                      </span>
-                    </span>
-                    <span className="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
-                    <span>
-                      <span className="text-gray-400">Updated:</span>{" "}
-                      <span className="text-gray-700 dark:text-gray-300">
-                        {request.updatedDate}
-                      </span>
-                    </span>
-                  </div>
-                </div>
+                  <MdOutlineRemoveRedEye className="w-4 h-4" />
+                  View
+                </button>
               </div>
-              <button className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                <MdOutlineRemoveRedEye className="w-4 h-4" />
-                View
-              </button>
-            </div>
-          );
-        })}
-      </div>
-      <Modal
-        isOpen={isOpen}
-        showCloseButton
-        onClose={handleCloseModal}
-        className="m-4 max-w-[640px] px-0"
-      >
+            );
+          })}
+        </div>
+      )}
+
+      <Modal isOpen={isOpen} showCloseButton onClose={handleCloseModal} className="m-4 max-w-[640px] px-0">
         <div className="rounded-3xl bg-white pt-6 pb-8 px-6 sm:px-8 dark:bg-gray-900 space-y-6">
           <div>
-            <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
-              Submit Service Request
-            </h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Submit a request for company amendments and corporate services
-            </p>
+            <h3 className="text-xl font-semibold text-gray-900 dark:text-white">Submit Service Request</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Submit a request for company amendments and corporate services</p>
           </div>
 
           <div className="space-y-2">
-            <label
-              htmlFor="service-type"
-              className="text-sm font-medium text-gray-700 dark:text-gray-200"
-            >
-              Service Type
-            </label>
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-200">Service Type</label>
             <div className="relative" ref={serviceTypeRef}>
               <button
                 type="button"
@@ -281,11 +274,7 @@ const ServiceRequestsTab: React.FC = () => {
                 className="inline-flex h-12 w-full items-center justify-between rounded-2xl border border-transparent bg-gradient-to-r from-white via-slate-50 to-slate-100 px-4 text-sm font-semibold text-gray-900 shadow-sm outline-none transition focus:border-brand-400 focus:ring-2 focus:ring-brand-100 dark:from-gray-900 dark:via-gray-900 dark:to-gray-950 dark:text-white"
               >
                 <span>{selectedServiceLabel}</span>
-                <LuChevronDown
-                  className={`h-4 w-4 text-gray-500 transition-transform ${
-                    isServiceTypeOpen ? "rotate-180" : ""
-                  }`}
-                />
+                <LuChevronDown className={`h-4 w-4 text-gray-500 transition-transform ${isServiceTypeOpen ? "rotate-180" : ""}`} />
               </button>
               {isServiceTypeOpen && (
                 <div className="absolute z-30 mt-2 w-full rounded-2xl border border-gray-200 bg-white py-2 shadow-xl dark:border-gray-700 dark:bg-gray-900">
@@ -306,9 +295,7 @@ const ServiceRequestsTab: React.FC = () => {
                         }`}
                       >
                         <span>{type.label}</span>
-                        {isSelected && (
-                          <LuCheck className="h-4 w-4 text-brand-500" />
-                        )}
+                        {isSelected && <LuCheck className="h-4 w-4 text-brand-500" />}
                       </button>
                     );
                   })}
@@ -318,14 +305,21 @@ const ServiceRequestsTab: React.FC = () => {
           </div>
 
           <div className="space-y-2">
-            <label
-              htmlFor="service-notes"
-              className="text-sm font-medium text-gray-700 dark:text-gray-200"
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-200">Priority</label>
+            <select
+              value={priority}
+              onChange={(e) => setPriority(e.target.value as "low" | "medium" | "high")}
+              className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
             >
-              Request Details
-            </label>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-200">Request Details</label>
             <textarea
-              id="service-notes"
               value={requestDetails}
               onChange={(event) => setRequestDetails(event.target.value)}
               placeholder="Please provide details of your request..."
@@ -334,65 +328,80 @@ const ServiceRequestsTab: React.FC = () => {
             />
           </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-200">
-              Attach Supporting Documents
-            </label>
-            <div
-              onClick={handleUploadClick}
-              className="relative flex min-h-[150px] flex-col items-center justify-center rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50 px-4 py-6 text-center text-sm text-gray-500 transition hover:border-brand-400 hover:bg-white dark:border-gray-700 dark:bg-gray-900 dark:hover:border-brand-400"
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                onChange={(event) => handleFiles(event.target.files)}
-                className="hidden"
-              />
-              <div className="flex flex-col items-center gap-3">
-                
-                  <BsUpload className="h-7 w-7" />
-               
-                <p className="text-sm font-semibold text-gray-800 dark:text-white">
-                  Click to upload or drag and drop
-                </p>
-                <p className="text-xs text-gray-400">
-                  PDF, DOC, DOCX, JPG, PNG (max 10MB)
-                </p>
-              </div>
-              {attachedFiles.length > 0 && (
-                <div className="mt-4 w-full rounded-lg bg-white/70 px-3 py-2 text-xs text-gray-500 dark:bg-white/5">
-                  {attachedFiles.map((file, index) => (
-                    <div key={`${file.name}-${index}`} className="flex justify-between">
-                      <span className="truncate">{file.name}</span>
-                      <span className="text-brand-500">Ready</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            File attachments are not yet supported on the customer service request API. Submit the request first and admin will advise next steps.
+          </p>
 
           <div className="flex flex-wrap items-center gap-3 pt-2">
             <button
-              onClick={handleSubmitRequest}
+              onClick={() => void handleSubmitRequest()}
+              disabled={submitting || !selectedServiceType || !requestDetails.trim()}
               type="button"
-              className="inline-flex items-center justify-center min-w-[160px] rounded-2xl bg-brand-500 px-5 py-3 text-sm font-semibold text-white transition hover:bg-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-400"
+              className="inline-flex items-center justify-center min-w-[160px] rounded-2xl bg-brand-500 px-5 py-3 text-sm font-semibold text-white transition hover:bg-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-400 disabled:opacity-50"
             >
-              Submit Request
+              {submitting ? "Submitting..." : "Submit Request"}
             </button>
             <button
-              onClick={handleSaveDraft}
+              onClick={handleCloseModal}
               type="button"
               className="inline-flex items-center justify-center min-w-[160px] rounded-2xl border border-gray-200 px-5 py-3 text-sm font-semibold text-gray-700 transition hover:border-gray-300 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-brand-100"
             >
-              Save as Draft
+              Cancel
             </button>
           </div>
         </div>
       </Modal>
+
+      <Modal isOpen={Boolean(viewingId)} showCloseButton onClose={() => { setViewingId(null); setViewing(null); setActivity([]); }} className="m-4 max-w-[720px] px-0">
+        <div className="rounded-3xl bg-white pt-6 pb-8 px-6 sm:px-8 dark:bg-gray-900 space-y-5">
+          <div>
+            <h3 className="text-xl font-semibold text-gray-900 dark:text-white">Service Request Details</h3>
+            {viewing && <p className="text-sm text-gray-500 dark:text-gray-400">ID: {viewing.id}</p>}
+          </div>
+
+          {viewLoading ? (
+            <div className="py-8 flex items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+              <LuRefreshCw className="w-4 h-4 animate-spin" /> Loading request...
+            </div>
+          ) : viewing ? (
+            <>
+              <div className="space-y-3 rounded-2xl border border-gray-200 dark:border-gray-700 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <h4 className="font-semibold text-gray-900 dark:text-white">{viewing.type}</h4>
+                  <span className="text-xs px-2.5 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">{viewing.status}</span>
+                </div>
+                <p className="text-sm text-gray-600 dark:text-gray-300">{viewing.description}</p>
+                <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
+                  <p>Priority: {viewing.priority || "medium"}</p>
+                  <p>Requested: {formatDateDisplay(viewing.requestedAt || viewing.createdAt)}</p>
+                  <p>Updated: {formatDateDisplay(viewing.updatedAt)}</p>
+                  {viewing.adminNotes ? <p>Admin Notes: {viewing.adminNotes}</p> : null}
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Activity</h4>
+                <div className="space-y-2 max-h-56 overflow-auto">
+                  {activity.length === 0 ? (
+                    <p className="text-sm text-gray-500 dark:text-gray-400">No activity yet.</p>
+                  ) : activity.map((item) => (
+                    <div key={item.id || `${item.actionType}-${item.createdAt}`} className="rounded-xl border border-gray-200 dark:border-gray-700 p-3">
+                      <p className="text-sm text-gray-800 dark:text-gray-200">
+                        {item.actionType?.replaceAll("_", " ") || "activity"}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        {(item.actor?.name || item.actor?.type || "System")} · {formatDateDisplay(item.createdAt)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-gray-500 dark:text-gray-400">No request details available.</p>
+          )}
+        </div>
+      </Modal>
     </div>
   );
-};
-
-export default ServiceRequestsTab;
+}
