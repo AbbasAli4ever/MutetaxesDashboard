@@ -188,6 +188,7 @@ export default function UserManagement() {
           name: newUserData.name,
           email: newUserData.email,
           password: newUserData.password,
+          type: "ADMIN",
           badgeId: newUserData.badgeId,
         }),
       });
