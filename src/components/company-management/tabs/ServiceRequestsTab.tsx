@@ -14,6 +14,8 @@ import {
   getCustomerServiceRequest,
   getCustomerServiceRequestActivity,
   listCustomerServiceRequests,
+  updateCustomerServiceRequest,
+  withdrawCustomerServiceRequest,
   type CustomerServiceRequestActivityApi,
   type CustomerServiceRequestApi,
 } from "@/components/company-management/customer-company-api";
@@ -50,14 +52,20 @@ const serviceTypes = [
 
 export default function ServiceRequestsTab() {
   const { isOpen, openModal, closeModal } = useModal();
+  const { isOpen: isWithdrawModalOpen, openModal: openWithdrawModal, closeModal: closeWithdrawModal } = useModal();
   const [requests, setRequests] = useState<CustomerServiceRequestApi[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [formMode, setFormMode] = useState<"create" | "edit">("create");
+  const [editingRequestId, setEditingRequestId] = useState<string | null>(null);
   const [selectedServiceType, setSelectedServiceType] = useState("");
   const [requestDetails, setRequestDetails] = useState("");
   const [priority, setPriority] = useState<"low" | "medium" | "high">("medium");
   const [isServiceTypeOpen, setIsServiceTypeOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [withdrawTarget, setWithdrawTarget] = useState<CustomerServiceRequestApi | null>(null);
   const [viewingId, setViewingId] = useState<string | null>(null);
   const [viewing, setViewing] = useState<CustomerServiceRequestApi | null>(null);
   const [activity, setActivity] = useState<CustomerServiceRequestActivityApi[]>([]);
@@ -114,10 +122,33 @@ export default function ServiceRequestsTab() {
   }, []);
 
   const resetForm = () => {
+    setFormMode("create");
+    setEditingRequestId(null);
     setSelectedServiceType("");
     setRequestDetails("");
     setPriority("medium");
     setIsServiceTypeOpen(false);
+    setActionError("");
+  };
+
+  const openCreateModal = () => {
+    resetForm();
+    setFormMode("create");
+    openModal();
+  };
+
+  const openEditModal = (request: CustomerServiceRequestApi) => {
+    const matchedServiceType = serviceTypes.find((item) => item.value === request.typeCode)
+      ? request.typeCode
+      : "other";
+    setFormMode("edit");
+    setEditingRequestId(request.id);
+    setSelectedServiceType(matchedServiceType || "other");
+    setRequestDetails(request.description || "");
+    setPriority(request.priority || "medium");
+    setIsServiceTypeOpen(false);
+    setActionError("");
+    openModal();
   };
 
   const handleCloseModal = () => {
@@ -130,13 +161,22 @@ export default function ServiceRequestsTab() {
     const service = serviceTypes.find((s) => s.value === selectedServiceType);
     if (!service || !requestDetails.trim()) return;
     setSubmitting(true);
+    setActionError("");
     try {
-      await createCustomerServiceRequest({
-        type: service.label,
-        typeCode: selectedServiceType === "other" ? "other" : selectedServiceType,
-        description: requestDetails.trim(),
-        priority,
-      });
+      if (formMode === "edit") {
+        if (!editingRequestId) return;
+        await updateCustomerServiceRequest(editingRequestId, {
+          description: requestDetails.trim(),
+          priority,
+        });
+      } else {
+        await createCustomerServiceRequest({
+          type: service.label,
+          typeCode: selectedServiceType === "other" ? "other" : selectedServiceType,
+          description: requestDetails.trim(),
+          priority,
+        });
+      }
       handleCloseModal();
       await load();
     } catch (err) {
@@ -145,9 +185,46 @@ export default function ServiceRequestsTab() {
         handleCloseModal();
         return;
       }
-      alert(err instanceof Error ? err.message : "Failed to submit service request");
+      setActionError(
+        err instanceof Error
+          ? err.message
+          : formMode === "edit"
+            ? "Failed to update service request"
+            : "Failed to submit service request"
+      );
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const openWithdrawConfirm = (request: CustomerServiceRequestApi) => {
+    setWithdrawTarget(request);
+    setActionError("");
+    openWithdrawModal();
+  };
+
+  const closeWithdrawConfirm = () => {
+    setWithdrawTarget(null);
+    closeWithdrawModal();
+  };
+
+  const handleWithdrawRequest = async () => {
+    if (!withdrawTarget) return;
+    setWithdrawing(true);
+    setActionError("");
+    try {
+      await withdrawCustomerServiceRequest(withdrawTarget.id);
+      closeWithdrawConfirm();
+      await load();
+    } catch (err) {
+      if (isUnavailableError(err)) {
+        setApiUnavailable(true);
+        closeWithdrawConfirm();
+        return;
+      }
+      setActionError(err instanceof Error ? err.message : "Failed to withdraw service request");
+    } finally {
+      setWithdrawing(false);
     }
   };
 
@@ -192,7 +269,7 @@ export default function ServiceRequestsTab() {
             Refresh
           </button>
           <button
-            onClick={openModal}
+            onClick={openCreateModal}
             disabled={apiUnavailable}
             className="inline-flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 text-white text-sm font-medium rounded-lg transition-colors"
           >
@@ -221,9 +298,15 @@ export default function ServiceRequestsTab() {
         </div>
       ) : (
         <div className="space-y-3">
+          {actionError ? (
+            <div className="rounded-xl border border-error-200 bg-error-50 dark:border-error-500/20 dark:bg-error-500/10 p-4">
+              <p className="text-sm text-error-700 dark:text-error-400">{actionError}</p>
+            </div>
+          ) : null}
           {requests.map((request) => {
             const statusConfig = getStatusConfig(request.status);
             const StatusIcon = statusConfig.icon;
+            const canEditOrWithdraw = request.status === "pending";
             return (
               <div key={request.id} className="flex items-center justify-between p-4 rounded-xl border border-gray-200 dark:border-gray-700">
                 <div className="flex items-center gap-4 min-w-0">
@@ -245,13 +328,31 @@ export default function ServiceRequestsTab() {
                     </div>
                   </div>
                 </div>
-                <button
-                  onClick={() => void openView(request.id)}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                >
-                  <MdOutlineRemoveRedEye className="w-4 h-4" />
-                  View
-                </button>
+                <div className="flex items-center gap-2">
+                  {canEditOrWithdraw ? (
+                    <>
+                      <button
+                        onClick={() => openEditModal(request)}
+                        className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-brand-700 dark:text-brand-300 bg-brand-50 dark:bg-brand-500/10 border border-brand-100 dark:border-brand-500/30 rounded-lg hover:bg-brand-100 dark:hover:bg-brand-500/20 transition-colors"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => openWithdrawConfirm(request)}
+                        className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/30 rounded-lg hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors"
+                      >
+                        Withdraw
+                      </button>
+                    </>
+                  ) : null}
+                  <button
+                    onClick={() => void openView(request.id)}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  >
+                    <MdOutlineRemoveRedEye className="w-4 h-4" />
+                    View
+                  </button>
+                </div>
               </div>
             );
           })}
@@ -261,17 +362,30 @@ export default function ServiceRequestsTab() {
       <Modal isOpen={isOpen} showCloseButton onClose={handleCloseModal} className="m-4 max-w-[640px] px-0">
         <div className="rounded-3xl bg-white pt-6 pb-8 px-6 sm:px-8 dark:bg-gray-900 space-y-6">
           <div>
-            <h3 className="text-xl font-semibold text-gray-900 dark:text-white">Submit Service Request</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Submit a request for company amendments and corporate services</p>
+            <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
+              {formMode === "edit" ? "Edit Service Request" : "Submit Service Request"}
+            </h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              {formMode === "edit"
+                ? "Update request details while the request is still pending."
+                : "Submit a request for company amendments and corporate services"}
+            </p>
           </div>
+
+          {actionError ? (
+            <div className="rounded-xl border border-error-200 bg-error-50 dark:border-error-500/20 dark:bg-error-500/10 p-3">
+              <p className="text-sm text-error-700 dark:text-error-400">{actionError}</p>
+            </div>
+          ) : null}
 
           <div className="space-y-2">
             <label className="text-sm font-medium text-gray-700 dark:text-gray-200">Service Type</label>
             <div className="relative" ref={serviceTypeRef}>
               <button
                 type="button"
+                disabled={formMode === "edit"}
                 onClick={() => setIsServiceTypeOpen((prev) => !prev)}
-                className="inline-flex h-12 w-full items-center justify-between rounded-2xl border border-transparent bg-gradient-to-r from-white via-slate-50 to-slate-100 px-4 text-sm font-semibold text-gray-900 shadow-sm outline-none transition focus:border-brand-400 focus:ring-2 focus:ring-brand-100 dark:from-gray-900 dark:via-gray-900 dark:to-gray-950 dark:text-white"
+                className="inline-flex h-12 w-full items-center justify-between rounded-2xl border border-transparent bg-gradient-to-r from-white via-slate-50 to-slate-100 px-4 text-sm font-semibold text-gray-900 shadow-sm outline-none transition focus:border-brand-400 focus:ring-2 focus:ring-brand-100 disabled:cursor-not-allowed disabled:opacity-60 dark:from-gray-900 dark:via-gray-900 dark:to-gray-950 dark:text-white"
               >
                 <span>{selectedServiceLabel}</span>
                 <LuChevronDown className={`h-4 w-4 text-gray-500 transition-transform ${isServiceTypeOpen ? "rotate-180" : ""}`} />
@@ -302,6 +416,9 @@ export default function ServiceRequestsTab() {
                 </div>
               )}
             </div>
+            {formMode === "edit" ? (
+              <p className="text-xs text-gray-500 dark:text-gray-400">Service type cannot be changed after request creation.</p>
+            ) : null}
           </div>
 
           <div className="space-y-2">
@@ -339,7 +456,9 @@ export default function ServiceRequestsTab() {
               type="button"
               className="inline-flex items-center justify-center min-w-[160px] rounded-2xl bg-brand-500 px-5 py-3 text-sm font-semibold text-white transition hover:bg-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-400 disabled:opacity-50"
             >
-              {submitting ? "Submitting..." : "Submit Request"}
+              {submitting
+                ? (formMode === "edit" ? "Updating..." : "Submitting...")
+                : (formMode === "edit" ? "Save Changes" : "Submit Request")}
             </button>
             <button
               onClick={handleCloseModal}
@@ -400,6 +519,48 @@ export default function ServiceRequestsTab() {
           ) : (
             <p className="text-sm text-gray-500 dark:text-gray-400">No request details available.</p>
           )}
+        </div>
+      </Modal>
+
+      <Modal isOpen={isWithdrawModalOpen} showCloseButton onClose={closeWithdrawConfirm} className="m-4 max-w-[520px] px-0">
+        <div className="rounded-3xl bg-white pt-6 pb-8 px-6 sm:px-8 dark:bg-gray-900 space-y-5">
+          <div>
+            <h3 className="text-xl font-semibold text-gray-900 dark:text-white">Withdraw Service Request</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              This will mark your pending request as rejected and remove it from active processing.
+            </p>
+          </div>
+
+          {withdrawTarget ? (
+            <div className="rounded-2xl border border-gray-200 dark:border-gray-700 p-4">
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">{withdrawTarget.type}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">ID: {withdrawTarget.id}</p>
+            </div>
+          ) : null}
+
+          {actionError ? (
+            <div className="rounded-xl border border-error-200 bg-error-50 dark:border-error-500/20 dark:bg-error-500/10 p-3">
+              <p className="text-sm text-error-700 dark:text-error-400">{actionError}</p>
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap items-center gap-3 pt-2">
+            <button
+              onClick={() => void handleWithdrawRequest()}
+              disabled={withdrawing || !withdrawTarget}
+              type="button"
+              className="inline-flex items-center justify-center min-w-[160px] rounded-2xl bg-red-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-400 disabled:opacity-50"
+            >
+              {withdrawing ? "Withdrawing..." : "Confirm Withdraw"}
+            </button>
+            <button
+              onClick={closeWithdrawConfirm}
+              type="button"
+              className="inline-flex items-center justify-center min-w-[160px] rounded-2xl border border-gray-200 px-5 py-3 text-sm font-semibold text-gray-700 transition hover:border-gray-300 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-brand-100"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       </Modal>
     </div>

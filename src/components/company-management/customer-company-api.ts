@@ -262,7 +262,7 @@ export async function createCustomerServiceRequest(payload: {
 
 export async function updateCustomerServiceRequest(
   requestId: string,
-  payload: { description?: string; priority?: "low" | "medium" | "high" }
+  payload: { description?: string; priority?: "low" | "medium" | "high"; status?: "rejected" }
 ) {
   const res = await authJson<{ data?: CustomerServiceRequestApi }>(
     `${API_BASE_URL}/api/v1/customer/service-requests/${requestId}`,
@@ -274,3 +274,13 @@ export async function updateCustomerServiceRequest(
   return res.data || null;
 }
 
+export async function withdrawCustomerServiceRequest(requestId: string) {
+  const res = await authJson<{ data?: CustomerServiceRequestApi }>(
+    `${API_BASE_URL}/api/v1/customer/service-requests/${requestId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ status: "rejected" }),
+    }
+  );
+  return res.data || null;
+}

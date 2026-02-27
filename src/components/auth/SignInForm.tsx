@@ -10,11 +10,13 @@ import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 
 export default function SignInForm() {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const [showPassword, setShowPassword] = useState(false);
   const [isChecked, setIsChecked] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
   const [isLoading, setIsLoading] = useState(false);
 
   const { login } = useAuth();
@@ -23,10 +25,30 @@ export default function SignInForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+
+    const trimmedEmail = email.trim();
+    const nextErrors: { email?: string; password?: string } = {};
+
+    if (!trimmedEmail) {
+      nextErrors.email = "Email is required.";
+    } else if (!emailRegex.test(trimmedEmail)) {
+      nextErrors.email = "Enter a valid email address (e.g. name@example.com).";
+    }
+
+    if (!password.trim()) {
+      nextErrors.password = "Password is required.";
+    }
+
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors);
+      return;
+    }
+
+    setFieldErrors({});
     setIsLoading(true);
 
     try {
-      const dashboardPath = await login({ email, password });
+      const dashboardPath = await login({ email: trimmedEmail, password });
       router.push(dashboardPath ?? "/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed. Please try again.");
@@ -108,7 +130,7 @@ export default function SignInForm() {
                 </span>
               </div>
             </div> */}
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={handleSubmit} noValidate>
               <div className="space-y-6">
                 {error && (
                   <div className="p-3 text-sm text-red-500 bg-red-50 dark:bg-red-900/20 rounded-lg">
@@ -123,8 +145,14 @@ export default function SignInForm() {
                     placeholder="info@gmail.com" 
                     type="email" 
                     value={email}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
-                    required
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                      setEmail(e.target.value);
+                      if (fieldErrors.email) {
+                        setFieldErrors((prev) => ({ ...prev, email: undefined }));
+                      }
+                    }}
+                    error={Boolean(fieldErrors.email)}
+                    hint={fieldErrors.email}
                   />
                 </div>
                 <div>
@@ -136,8 +164,14 @@ export default function SignInForm() {
                       type={showPassword ? "text" : "password"}
                       placeholder="Enter your password"
                       value={password}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
-                      required
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                        setPassword(e.target.value);
+                        if (fieldErrors.password) {
+                          setFieldErrors((prev) => ({ ...prev, password: undefined }));
+                        }
+                      }}
+                      error={Boolean(fieldErrors.password)}
+                      hint={fieldErrors.password}
                     />
                     <span
                       onClick={() => setShowPassword(!showPassword)}
