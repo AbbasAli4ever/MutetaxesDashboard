@@ -94,6 +94,7 @@ interface ApiDocument {
 interface ApiRegistrationDetail {
   id: string;
   status: "pending" | "in-progress" | "completed";
+  customerId: number | null;
   assignedToId: number | null;
   assignedTo: { id: number; name: string; email: string } | null;
   applicantFirstName: string;
@@ -176,6 +177,7 @@ interface Person {
 interface RegistrationDetail {
   id: string;
   status: "pending" | "in-progress" | "completed";
+  customerId: number | null;
   assignedTo: string;
   submittedDate: string;
   lastUpdated: string;
@@ -291,6 +293,7 @@ function mapApiToUi(api: ApiRegistrationDetail): RegistrationDetail {
   return {
     id: api.id,
     status: api.status,
+    customerId: api.customerId ?? null,
     assignedTo: api.assignedTo?.name || "Unassigned",
     submittedDate: api.createdAt,
     lastUpdated: api.updatedAt,
@@ -2267,6 +2270,52 @@ interface CreateLoginForm {
   confirmPassword: string;
 }
 
+function useModalLock(ref: React.RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function getFocusable() {
+      if (!ref.current) return [];
+      return Array.from(ref.current.querySelectorAll<HTMLElement>(
+        'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])'
+      ));
+    }
+
+    // If focus escapes the modal, pull it back to the first focusable element inside
+    function handleFocusIn(e: FocusEvent) {
+      if (!ref.current) return;
+      if (!ref.current.contains(e.target as Node)) {
+        e.stopPropagation();
+        const els = getFocusable();
+        if (els.length > 0) els[0].focus();
+      }
+    }
+
+    // Wrap Tab/Shift+Tab at the boundaries
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Tab" || !ref.current) return;
+      const els = getFocusable();
+      if (els.length === 0) return;
+      const first = els[0];
+      const last  = els[els.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+      } else {
+        if (document.activeElement === last)  { e.preventDefault(); first.focus(); }
+      }
+    }
+
+    document.addEventListener("focusin", handleFocusIn, true);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = prev;
+      document.removeEventListener("focusin", handleFocusIn, true);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [ref]);
+}
+
 function CreateLoginModal({
   reg,
   onNext,
@@ -2276,6 +2325,8 @@ function CreateLoginModal({
   onNext: (form: CreateLoginForm) => void;
   onClose: () => void;
 }) {
+  const modalRef = useRef<HTMLDivElement>(null);
+  useModalLock(modalRef);
   const [form, setForm] = useState<CreateLoginForm>({
     firstName: reg.applicant.firstName,
     lastName: reg.applicant.lastName,
@@ -2297,7 +2348,7 @@ function CreateLoginModal({
   const valid = Object.values(errors).every((e) => !e);
 
   const set = <K extends keyof CreateLoginForm>(k: K) => (v: CreateLoginForm[K]) =>
-    setForm((p) => ({ ...p, [k]: v }));
+    setForm((p) => ({ ...p, [k]: typeof v === "string" ? v.replace(/^\s+/, "") : v }));
 
   function handleNext() {
     setTouched(true);
@@ -2306,9 +2357,9 @@ function CreateLoginModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+    <div ref={modalRef} className="fixed inset-0 z-80 flex items-center justify-center p-4" role="dialog" aria-modal="true">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
 
       {/* Modal */}
       <div className="relative w-full max-w-lg bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden">
@@ -2382,9 +2433,10 @@ function CreateLoginModal({
             <div className="relative">
               <LuMail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
-                type="email"
+                type="text"
+                inputMode="email"
                 value={form.email}
-                onChange={(e) => set("email")(e.target.value)}
+                onChange={(e) => set("email")(e.target.value.replace(/\s/g, ""))}
                 className={(touched && errors.email ? inputErrCls : inputCls) + " pl-9"}
                 placeholder="email@example.com"
               />
@@ -2596,6 +2648,8 @@ function CompanySetupModal({
   submitting: boolean;
   submittingLabel?: string;
 }) {
+  const modalRef = useRef<HTMLDivElement>(null);
+  useModalLock(modalRef);
   const [form, setForm] = useState<CompanySetupForm>({
     companyName:                reg.company.proposedCompanyName,
     companyType:                reg.company.type,
@@ -2634,7 +2688,7 @@ function CompanySetupModal({
   const valid = Object.values(errors).every((e) => !e);
 
   const set = (k: keyof CompanySetupForm) => (v: string | CompanyDocFile | null) =>
-    setForm((p) => ({ ...p, [k]: v }));
+    setForm((p) => ({ ...p, [k]: typeof v === "string" ? v.replace(/^\s+/, "") : v }));
 
   function handleConfirm() {
     setTouched(true);
@@ -2643,9 +2697,9 @@ function CompanySetupModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+    <div ref={modalRef} className="fixed inset-0 z-80 flex items-center justify-center p-4" role="dialog" aria-modal="true">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
 
       {/* Modal */}
       <div className="relative w-full max-w-2xl bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden flex flex-col max-h-[90vh]">
@@ -2771,7 +2825,7 @@ function CompanySetupModal({
                   </label>
                   <div className="relative">
                     <LuMail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input type="email" value={form.businessEmail} onChange={(e) => set("businessEmail")(e.target.value)} className={(touched && errors.businessEmail ? inputErrCls : inputCls) + " pl-9"} />
+                    <input type="text" inputMode="email" value={form.businessEmail} onChange={(e) => set("businessEmail")(e.target.value.replace(/\s/g, ""))} className={(touched && errors.businessEmail ? inputErrCls : inputCls) + " pl-9"} />
                   </div>
                   {touched && errors.businessEmail && <p className="mt-1 text-xs text-error-500">{errors.businessEmail}</p>}
                 </div>
@@ -2976,8 +3030,8 @@ function RegistrationDetailContent({ id }: { id: string }) {
   const handleStatusSave = async () => {
     if (!reg || draftStatus === reg.status) { setEditingStatus(false); return; }
 
-    // Intercept pending/in-progress → completed: trigger the 2-step completion flow
-    if ((reg.status === "in-progress" || reg.status === "pending") && draftStatus === "completed") {
+    // Intercept pending/in-progress → completed: only trigger the 2-step flow if no customer exists yet
+    if ((reg.status === "in-progress" || reg.status === "pending") && draftStatus === "completed" && !reg.customerId) {
       setEditingStatus(false);
       setCompletionStep(1);
       return;

@@ -106,6 +106,7 @@ const adminNavItems: NavItem[] = [
     icon: <LuUserCog className="w-6 h-6" />,
     name: "Customer Management",
     path: "/admin/customer-management",
+    permissionModule: "CUSTOMER_MANAGEMENT",
   },
   {
     icon: <LuDollarSign className="w-6 h-6" />,

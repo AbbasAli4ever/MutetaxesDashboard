@@ -4,6 +4,11 @@ import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { authFetch, API_BASE_URL } from "@/lib/auth";
 import {
+  ModulePermissionProvider,
+  useModulePermission,
+} from "@/context/PermissionContext";
+import PageAccessGuard from "@/components/common/PageAccessGuard";
+import {
   CustomerOnboardingFlowError,
   runCustomerOnboardingFlow,
   type CustomerOnboardingDocumentInput,
@@ -346,10 +351,58 @@ function companySetupDocsToUpload(
 
 // ─── Modal Step 1: Create Customer Login ──────────────────────────────────────
 
+function useModalLock(ref: React.RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function getFocusable() {
+      if (!ref.current) return [];
+      return Array.from(ref.current.querySelectorAll<HTMLElement>(
+        'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])'
+      ));
+    }
+
+    // If focus escapes the modal, pull it back to the first focusable element inside
+    function handleFocusIn(e: FocusEvent) {
+      if (!ref.current) return;
+      if (!ref.current.contains(e.target as Node)) {
+        e.stopPropagation();
+        const els = getFocusable();
+        if (els.length > 0) els[0].focus();
+      }
+    }
+
+    // Wrap Tab/Shift+Tab at the boundaries
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Tab" || !ref.current) return;
+      const els = getFocusable();
+      if (els.length === 0) return;
+      const first = els[0];
+      const last  = els[els.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+      } else {
+        if (document.activeElement === last)  { e.preventDefault(); first.focus(); }
+      }
+    }
+
+    document.addEventListener("focusin", handleFocusIn, true);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = prev;
+      document.removeEventListener("focusin", handleFocusIn, true);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [ref]);
+}
+
 function CreateLoginModal({ onNext, onClose }: {
   onNext: (form: CreateLoginForm, detail: ApiRegistrationDetail | null) => void;
   onClose: () => void;
 }) {
+  const modalRef = useRef<HTMLDivElement>(null);
+  useModalLock(modalRef);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [form, setForm] = useState<CreateLoginForm>({
     registrationId: "", firstName: "", lastName: "", email: "",
@@ -420,7 +473,7 @@ function CreateLoginModal({ onNext, onClose }: {
   }
 
   const set = <K extends keyof CreateLoginForm>(k: K) => (v: CreateLoginForm[K]) =>
-    setForm((p) => ({ ...p, [k]: v }));
+    setForm((p) => ({ ...p, [k]: typeof v === "string" ? v.replace(/^\s+/, "") : v }));
 
   const errors = {
     registrationId:  !form.registrationId           ? "Please select a registration" : "",
@@ -439,8 +492,8 @@ function CreateLoginModal({ onNext, onClose }: {
   }
 
   return (
-    <div className="fixed inset-0 z-80 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+    <div ref={modalRef} className="fixed inset-0 z-80 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
       <div className="relative w-full max-w-lg bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden">
 
         {/* Header */}
@@ -548,7 +601,7 @@ function CreateLoginModal({ onNext, onClose }: {
             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">Email Address <span className="text-error-500">*</span></label>
             <div className="relative">
               <LuMail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input type="email" value={form.email} onChange={(e) => set("email")(e.target.value)} className={(touched && errors.email ? inputErrCls : inputCls) + " pl-9"} placeholder="email@example.com" />
+              <input type="text" inputMode="email" value={form.email} onChange={(e) => set("email")(e.target.value.replace(/\s/g, ""))} className={(touched && errors.email ? inputErrCls : inputCls) + " pl-9"} placeholder="email@example.com" />
             </div>
             {touched && errors.email && <p className="mt-1 text-xs text-error-500">{errors.email}</p>}
           </div>
@@ -609,6 +662,8 @@ function CompanySetupModal({ loginForm, detail, onConfirm, onBack, onClose, subm
   submitting: boolean;
   submittingLabel?: string;
 }) {
+  const modalRef = useRef<HTMLDivElement>(null);
+  useModalLock(modalRef);
   // Build address from billing fields
   const address = detail
     ? [detail.billingStreet, detail.billingCity, detail.billingState, detail.billingPostalCode, detail.billingCountry]
@@ -647,7 +702,7 @@ function CompanySetupModal({ loginForm, detail, onConfirm, onBack, onClose, subm
   const valid = Object.values(errors).every((e) => !e);
 
   const set = (k: keyof CompanySetupForm) => (v: string | CompanyDocFile | null) =>
-    setForm((p) => ({ ...p, [k]: v }));
+    setForm((p) => ({ ...p, [k]: typeof v === "string" ? v.replace(/^\s+/, "") : v }));
 
   function handleConfirm() {
     setTouched(true);
@@ -662,8 +717,8 @@ function CompanySetupModal({ loginForm, detail, onConfirm, onBack, onClose, subm
   ].filter(Boolean).length;
 
   return (
-    <div className="fixed inset-0 z-80 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+    <div ref={modalRef} className="fixed inset-0 z-80 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
       <div className="relative w-full max-w-2xl bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden flex flex-col max-h-[90vh]">
 
         {/* Header */}
@@ -786,7 +841,7 @@ function CompanySetupModal({ loginForm, detail, onConfirm, onBack, onClose, subm
                   </label>
                   <div className="relative">
                     <LuMail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input type="email" value={form.businessEmail} onChange={(e) => set("businessEmail")(e.target.value)} className={(touched && errors.businessEmail ? inputErrCls : inputCls) + " pl-9"} />
+                    <input type="text" inputMode="email" value={form.businessEmail} onChange={(e) => set("businessEmail")(e.target.value.replace(/\s/g, ""))} className={(touched && errors.businessEmail ? inputErrCls : inputCls) + " pl-9"} />
                   </div>
                   {touched && errors.businessEmail && <p className="mt-1 text-xs text-error-500">{errors.businessEmail}</p>}
                 </div>
@@ -884,7 +939,9 @@ function CompanySetupModal({ loginForm, detail, onConfirm, onBack, onClose, subm
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function CustomerManagementPage() {
+function CustomerManagementContent() {
+  const { can } = useModulePermission();
+  const canCreate = can("CREATE");
   const router = useRouter();
 
   const [customers, setCustomers] = useState<CustomerListItem[]>([]);
@@ -1056,12 +1113,14 @@ export default function CustomerManagementPage() {
             Manage customers and their company formation details
           </p>
         </div>
-        <button
-          onClick={() => setAddStep(1)}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-500 hover:bg-brand-600 rounded-lg transition-colors"
-        >
-          <LuPlus className="w-4 h-4" /> Create Customer
-        </button>
+        {canCreate && (
+          <button
+            onClick={() => setAddStep(1)}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-500 hover:bg-brand-600 rounded-lg transition-colors"
+          >
+            <LuPlus className="w-4 h-4" /> Create Customer
+          </button>
+        )}
       </div>
 
       {/* Table Card */}
@@ -1304,5 +1363,15 @@ export default function CustomerManagementPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function CustomerManagementPage() {
+  return (
+    <PageAccessGuard module="CUSTOMER_MANAGEMENT">
+      <ModulePermissionProvider module="CUSTOMER_MANAGEMENT">
+        <CustomerManagementContent />
+      </ModulePermissionProvider>
+    </PageAccessGuard>
   );
 }

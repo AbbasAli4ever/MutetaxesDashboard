@@ -1,8 +1,14 @@
 "use client";
 
 import React, { useState } from "react";
+import DatePicker from "@/components/form/date-picker";
 import { useRouter, useParams } from "next/navigation";
 import { API_BASE_URL, authFetch } from "@/lib/auth";
+import {
+  ModulePermissionProvider,
+  useModulePermission,
+} from "@/context/PermissionContext";
+import PageAccessGuard from "@/components/common/PageAccessGuard";
 import {
   LuArrowLeft,
   LuBuilding2,
@@ -308,7 +314,7 @@ function SectionCard({ title, subtitle, icon: Icon, children, onEdit, onSave, on
   editing?: boolean; saving?: boolean;
 }) {
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-theme-sm overflow-hidden">
+    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-theme-sm overflow-visible">
       <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-brand-50 dark:bg-brand-500/10 flex items-center justify-center">
@@ -346,13 +352,14 @@ function SectionCard({ title, subtitle, icon: Icon, children, onEdit, onSave, on
 
 // ─── Tab: Company Profile ──────────────────────────────────────────────────────
 
-function CompanyProfileTab({ profile, directors, shareholders, onSaveProfile, onSaveDirectors, onSaveShareholders }: {
+function CompanyProfileTab({ profile, directors, shareholders, onSaveProfile, onSaveDirectors, onSaveShareholders, readOnly }: {
   profile: CompanyProfile;
   directors: Director[];
   shareholders: Shareholder[];
   onSaveProfile?: (profile: CompanyProfile) => Promise<void>;
   onSaveDirectors?: (directors: Director[]) => Promise<void>;
   onSaveShareholders?: (shareholders: Shareholder[]) => Promise<void>;
+  readOnly?: boolean;
 }) {
   const [editingProfile, setEditingProfile] = useState(false);
   const [draftProfile, setDraftProfile] = useState(profile);
@@ -435,14 +442,35 @@ function CompanyProfileTab({ profile, directors, shareholders, onSaveProfile, on
         icon={LuBuilding2}
         editing={editingProfile}
         saving={savingProfile}
-        onEdit={() => { setDraftProfile(profile); setEditingProfile(true); }}
+        onEdit={readOnly ? undefined : () => { setDraftProfile(profile); setEditingProfile(true); }}
         onSave={() => { void saveProfile(); }}
-        onCancel={() => setEditingProfile(false)}
+        onCancel={() => { setDraftProfile(profile); setEditingProfile(false); }}
       >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <Field label="Company Name"              value={draftProfile.companyName}       editing={editingProfile} onChange={setP("companyName")} />
           <Field label="Business Registration No." value={draftProfile.registrationNumber} editing={editingProfile} onChange={setP("registrationNumber")} />
-          <Field label="Incorporation Date"        value={draftProfile.incorporationDate}  editing={editingProfile} onChange={setP("incorporationDate")} />
+          {editingProfile ? (
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5 font-medium">Incorporation Date</p>
+              <DatePicker
+                id="admin-incorporation-date"
+                mode="single"
+                placeholder="Select date"
+                defaultDate={draftProfile.incorporationDate ? `${draftProfile.incorporationDate}T00:00:00` : undefined}
+                onChange={(dates) => {
+                  const d = dates[0];
+                  if (d) {
+                    const y = d.getFullYear();
+                    const m = String(d.getMonth() + 1).padStart(2, "0");
+                    const day = String(d.getDate()).padStart(2, "0");
+                    setP("incorporationDate")(`${y}-${m}-${day}`);
+                  }
+                }}
+              />
+            </div>
+          ) : (
+            <Field label="Incorporation Date" value={draftProfile.incorporationDate} editing={false} />
+          )}
           <Field label="Business Nature"           value={draftProfile.businessNature}     editing={editingProfile} onChange={setP("businessNature")} />
           <Field label="Business Email"            value={draftProfile.email}              editing={editingProfile} onChange={setP("email")} />
           <Field label="Phone Number"              value={draftProfile.phone}              editing={editingProfile} onChange={setP("phone")} />
@@ -460,9 +488,9 @@ function CompanyProfileTab({ profile, directors, shareholders, onSaveProfile, on
           icon={LuUser}
           editing={editingDirectors}
           saving={savingDirectors}
-          onEdit={() => { setDraftDirectors(directors); setEditingDirectors(true); }}
-        onSave={() => { void saveDirectors(); }}
-          onCancel={() => setEditingDirectors(false)}
+          onEdit={readOnly ? undefined : () => { setDraftDirectors(directors); setEditingDirectors(true); }}
+          onSave={() => { void saveDirectors(); }}
+          onCancel={() => { setDraftDirectors(directors); setEditingDirectors(false); }}
         >
           <div className="space-y-3">
             {draftDirectors.map((d, i) => (
@@ -509,9 +537,9 @@ function CompanyProfileTab({ profile, directors, shareholders, onSaveProfile, on
           icon={LuUsers}
           editing={editingShareholders}
           saving={savingShareholders}
-          onEdit={() => { setDraftShareholders(shareholders); setEditingShareholders(true); }}
-        onSave={() => { void saveShareholders(); }}
-          onCancel={() => setEditingShareholders(false)}
+          onEdit={readOnly ? undefined : () => { setDraftShareholders(shareholders); setEditingShareholders(true); }}
+          onSave={() => { void saveShareholders(); }}
+          onCancel={() => { setDraftShareholders(shareholders); setEditingShareholders(false); }}
         >
           <div className="space-y-3">
             {draftShareholders.map((s, i) => (
@@ -566,6 +594,7 @@ function DocumentsTab({
   onDownloadDocument,
   onPreviewDocument,
   loading,
+  readOnly,
 }: {
   docs: CompanyDocument[];
   onUploadDocument?: (input: { file: File; name: string; category: string; documentType?: string }) => Promise<void>;
@@ -573,6 +602,7 @@ function DocumentsTab({
   onDownloadDocument?: (doc: CompanyDocument) => Promise<void>;
   onPreviewDocument?: (doc: CompanyDocument) => Promise<void>;
   loading?: boolean;
+  readOnly?: boolean;
 }) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -584,6 +614,20 @@ function DocumentsTab({
   const [newDocCategory, setNewDocCategory] = useState("");
   const [newDocType, setNewDocType] = useState("");
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [docToast, setDocToast] = useState<{ id: number; variant: "success" | "error"; title: string; description?: string } | null>(null);
+
+  React.useEffect(() => {
+    if (!docToast) return;
+    const t = window.setTimeout(() => setDocToast((c) => (c?.id === docToast.id ? null : c)), 4200);
+    return () => window.clearTimeout(t);
+  }, [docToast]);
+
+  function showDocToast(variant: "success" | "error", title: string, description?: string) {
+    setDocToast({ id: Date.now(), variant, title, description });
+  }
+
+  const ALLOWED_MIME = ["application/pdf", "image/jpeg", "image/jpg", "image/png", "image/webp"];
+  const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
   const DOC_CATEGORIES = [
     "Incorporation", "Registration", "Constitution", "Shares",
@@ -623,6 +667,14 @@ function DocumentsTab({
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = "";
+    if (!ALLOWED_MIME.includes(file.type)) {
+      showDocToast("error", "Invalid file type", "Only PDF, JPG, PNG, and WEBP files are accepted.");
+      return;
+    }
+    if (file.size > MAX_FILE_SIZE) {
+      showDocToast("error", "File too large", `Maximum allowed size is 10 MB. Your file is ${formatBytes(file.size)}.`);
+      return;
+    }
     setPendingFile(file);
     setNewDocName(file.name.replace(/\.[^.]+$/, ""));
     setNewDocCategory("Other");
@@ -655,7 +707,7 @@ function DocumentsTab({
       setNewDocType("");
     } catch (err) {
       setUploading(false);
-      alert(err instanceof Error ? err.message : "Failed to upload document");
+      showDocToast("error", "Upload failed", err instanceof Error ? err.message : "Failed to upload document");
     }
   }
 
@@ -664,7 +716,7 @@ function DocumentsTab({
     try {
       await onDeleteDocument?.(id);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to delete document");
+      showDocToast("error", "Delete failed", err instanceof Error ? err.message : "Failed to delete document");
     } finally {
       setDeletingId(null);
     }
@@ -675,7 +727,7 @@ function DocumentsTab({
     try {
       await onDownloadDocument?.(doc);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to download document");
+      showDocToast("error", "Download failed", err instanceof Error ? err.message : "Failed to download document");
     } finally {
       setDownloadingId(null);
     }
@@ -686,7 +738,7 @@ function DocumentsTab({
     try {
       await onPreviewDocument?.(doc);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to preview document");
+      showDocToast("error", "Preview failed", err instanceof Error ? err.message : "Failed to preview document");
     } finally {
       setPreviewingId(null);
     }
@@ -704,12 +756,14 @@ function DocumentsTab({
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Upload statutory documents visible to the customer</p>
           </div>
         </div>
-        <button
-          onClick={openUploadModal}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-500 hover:bg-brand-600 rounded-lg transition-colors"
-        >
-          <LuUpload className="w-4 h-4" /> Upload Document
-        </button>
+        {!readOnly && (
+          <button
+            onClick={openUploadModal}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-500 hover:bg-brand-600 rounded-lg transition-colors"
+          >
+            <LuUpload className="w-4 h-4" /> Upload Document
+          </button>
+        )}
       </div>
 
       <div className="p-6">
@@ -754,9 +808,11 @@ function DocumentsTab({
                   >
                     <LuDownload className="w-3.5 h-3.5" /> {downloadingId === doc.id ? "Loading..." : "Download"}
                   </button>
-                  <button onClick={() => void handleRemove(doc.id)} disabled={deletingId === doc.id} className="p-1.5 text-error-500 hover:bg-error-50 dark:hover:bg-error-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-50">
-                    <LuTrash2 className="w-4 h-4" />
-                  </button>
+                  {!readOnly && (
+                    <button onClick={() => void handleRemove(doc.id)} disabled={deletingId === doc.id} className="p-1.5 text-error-500 hover:bg-error-50 dark:hover:bg-error-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-50">
+                      <LuTrash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -837,6 +893,45 @@ function DocumentsTab({
           </div>
         </div>
       )}
+
+      {/* ── Document Toast ────────────────────────────────────────────────── */}
+      {docToast && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[200] w-[calc(100vw-2rem)] max-w-md">
+          <div
+            className={`relative rounded-xl border shadow-2xl backdrop-blur-sm px-4 py-3 pr-10 ${
+              docToast.variant === "success"
+                ? "bg-white/95 dark:bg-gray-900/95 border-success-200 dark:border-success-500/30"
+                : "bg-white/95 dark:bg-gray-900/95 border-error-200 dark:border-error-500/30"
+            }`}
+            role="status"
+            aria-live="polite"
+          >
+            <div className="flex items-start gap-3">
+              <div className={`mt-0.5 w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${
+                docToast.variant === "success"
+                  ? "bg-success-100 text-success-700 dark:bg-success-500/15 dark:text-success-400"
+                  : "bg-error-100 text-error-700 dark:bg-error-500/15 dark:text-error-400"
+              }`}>
+                {docToast.variant === "success" ? <LuCheck className="w-4 h-4" /> : <LuX className="w-4 h-4" />}
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">{docToast.title}</p>
+                {docToast.description && (
+                  <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-300 break-words">{docToast.description}</p>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDocToast(null)}
+              className="absolute top-2.5 right-2.5 p-1 rounded-md text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              aria-label="Dismiss"
+            >
+              <LuX className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -856,12 +951,14 @@ function RenewalsTab({
   onUpdateRenewal,
   onDeleteRenewal,
   loading,
+  readOnly,
 }: {
   renewals: Renewal[];
   onCreateRenewal?: (payload: { name: string; dueDate: string; amount: string; status: Renewal["status"]; renewalType?: string; notes?: string }) => Promise<void>;
   onUpdateRenewal?: (id: string, payload: Partial<{ name: string; dueDate: string; amount: string; status: Renewal["status"]; renewalType?: string; notes?: string }>) => Promise<void>;
   onDeleteRenewal?: (id: string) => Promise<void>;
   loading?: boolean;
+  readOnly?: boolean;
 }) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -937,9 +1034,11 @@ function RenewalsTab({
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Track statutory renewals and notify the customer</p>
           </div>
         </div>
-        <button onClick={openAdd} className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-500 hover:bg-brand-600 rounded-lg transition-colors">
-          <LuPlus className="w-4 h-4" /> Add Renewal
-        </button>
+        {!readOnly && (
+          <button onClick={openAdd} className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-500 hover:bg-brand-600 rounded-lg transition-colors">
+            <LuPlus className="w-4 h-4" /> Add Renewal
+          </button>
+        )}
       </div>
 
       <div className="p-6">
@@ -995,12 +1094,16 @@ function RenewalsTab({
                     ) : (
                       <>
                         <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${cfg.cls}`}>{cfg.label}</span>
-                        <button onClick={() => startEdit(r)} className="p-1.5 text-gray-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100">
-                          <LuPencil className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => void removeRenewal(r.id)} disabled={deletingId === r.id} className="p-1.5 text-gray-400 hover:text-error-500 hover:bg-error-50 dark:hover:bg-error-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-50">
-                          {deletingId === r.id ? <LuRefreshCw className="w-4 h-4 animate-spin" /> : <LuTrash2 className="w-4 h-4" />}
-                        </button>
+                        {!readOnly && (
+                          <>
+                            <button onClick={() => startEdit(r)} className="p-1.5 text-gray-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100">
+                              <LuPencil className="w-4 h-4" />
+                            </button>
+                            <button onClick={() => void removeRenewal(r.id)} disabled={deletingId === r.id} className="p-1.5 text-gray-400 hover:text-error-500 hover:bg-error-50 dark:hover:bg-error-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-50">
+                              {deletingId === r.id ? <LuRefreshCw className="w-4 h-4 animate-spin" /> : <LuTrash2 className="w-4 h-4" />}
+                            </button>
+                          </>
+                        )}
                       </>
                     )}
                   </div>
@@ -1086,6 +1189,12 @@ function ServiceRequestsTab({
 
   const viewing = viewingData ?? requests.find((r) => r.id === viewingId) ?? null;
 
+  function closeView() {
+    setViewingId(null);
+    setViewingData(null);
+    setViewingActivity([]);
+  }
+
   async function openView(r: ServiceRequest) {
     setViewingId(r.id);
     setViewLoading(true);
@@ -1121,9 +1230,7 @@ function ServiceRequestsTab({
         internalNotes: internalNotesDraft,
         priority: priorityDraft,
       });
-      setViewingId(null);
-      setViewingData(null);
-      setViewingActivity([]);
+      closeView();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to save service request");
     } finally {
@@ -1192,15 +1299,15 @@ function ServiceRequestsTab({
       {/* View / Resolve Modal */}
       {viewing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="w-full max-w-lg bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-2xl">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800">
+          <div className="w-full max-w-lg bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800 shrink-0">
               <div>
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{viewing.type}</h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">ID: {viewing.id}</p>
               </div>
-              <button onClick={() => setViewingId(null)} className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg transition-colors"><LuX className="w-4 h-4" /></button>
+              <button onClick={() => closeView()} className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg transition-colors"><LuX className="w-4 h-4" /></button>
             </div>
-            <div className="p-6 space-y-5">
+            <div className="p-6 space-y-5 overflow-y-auto flex-1">
               {viewLoading ? (
                 <div className="py-8 text-center">
                   <LuRefreshCw className="w-6 h-6 mx-auto text-gray-400 mb-2 animate-spin" />
@@ -1271,8 +1378,8 @@ function ServiceRequestsTab({
               </>
               )}
             </div>
-            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
-              <button onClick={() => setViewingId(null)} className="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 shrink-0">
+              <button onClick={() => closeView()} className="px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">Cancel</button>
               <button onClick={() => void saveView()} disabled={viewLoading || savingView} className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-500 hover:bg-brand-600 disabled:opacity-50 rounded-lg transition-colors">
                 <LuCheck className="w-4 h-4" /> Save Changes
               </button>
@@ -1457,7 +1564,9 @@ function mapServiceRequestsToUi(rows: AdminServiceRequestApi[]): ServiceRequest[
   }));
 }
 
-export default function CustomerDetailPage() {
+function CustomerDetailContent() {
+  const { isReadOnly } = useModulePermission();
+  const readOnly = isReadOnly;
   const router = useRouter();
   const params = useParams();
   const customerId = Number(params.id);
@@ -2030,6 +2139,7 @@ export default function CustomerDetailPage() {
           onSaveProfile={handleSaveCompanyProfile}
           onSaveDirectors={handleSaveDirectors}
           onSaveShareholders={handleSaveShareholders}
+          readOnly={readOnly}
         />
       )}
       {activeTab === "documents" && (
@@ -2040,6 +2150,7 @@ export default function CustomerDetailPage() {
           onDeleteDocument={handleDeleteCompanyDocument}
           onPreviewDocument={handlePreviewCompanyDocument}
           onDownloadDocument={handleDownloadCompanyDocument}
+          readOnly={readOnly}
         />
       )}
       {activeTab === "renewals" && (
@@ -2049,6 +2160,7 @@ export default function CustomerDetailPage() {
           onCreateRenewal={handleCreateRenewal}
           onUpdateRenewal={handleUpdateRenewal}
           onDeleteRenewal={handleDeleteRenewal}
+          readOnly={readOnly}
         />
       )}
       {activeTab === "service-requests" && (
@@ -2060,5 +2172,15 @@ export default function CustomerDetailPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function CustomerDetailPage() {
+  return (
+    <PageAccessGuard module="CUSTOMER_MANAGEMENT">
+      <ModulePermissionProvider module="CUSTOMER_MANAGEMENT">
+        <CustomerDetailContent />
+      </ModulePermissionProvider>
+    </PageAccessGuard>
   );
 }
