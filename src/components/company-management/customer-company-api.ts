@@ -278,8 +278,7 @@ export async function withdrawCustomerServiceRequest(requestId: string) {
   const res = await authJson<{ data?: CustomerServiceRequestApi }>(
     `${API_BASE_URL}/api/v1/customer/service-requests/${requestId}`,
     {
-      method: "PATCH",
-      body: JSON.stringify({ status: "rejected" }),
+      method: "DELETE",
     }
   );
   return res.data || null;

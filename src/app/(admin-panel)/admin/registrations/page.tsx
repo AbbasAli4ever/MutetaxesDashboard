@@ -23,6 +23,7 @@ import {
 } from "@/context/PermissionContext";
 import PageAccessGuard from "@/components/common/PageAccessGuard";
 import { authFetch, API_BASE_URL } from "@/lib/auth";
+import { createRegistrationPdfBlob, type ApiRegistrationPdfData } from "@/lib/registration-pdf";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -89,9 +90,13 @@ function RegisterButton() {
 function RegistrationActionsCell({
   onView,
   onEdit,
+  onDownload,
+  downloading,
 }: {
   onView: () => void;
   onEdit: () => void;
+  onDownload: () => void;
+  downloading: boolean;
 }) {
   const { can } = useModulePermission();
   const canRead = can("READ");
@@ -116,10 +121,12 @@ function RegistrationActionsCell({
         <LuPencil className="w-5 h-5" />
       </button> */}
       <button
-        className="p-2 text-gray-600 hover:text-brand-500 dark:text-gray-400 dark:hover:text-brand-400 transition-colors"
+        onClick={canRead ? onDownload : undefined}
+        disabled={!canRead || downloading}
+        className="p-2 text-gray-600 hover:text-brand-500 dark:text-gray-400 dark:hover:text-brand-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-gray-600 dark:disabled:hover:text-gray-400"
         title="Download"
       >
-        <LuDownload className="w-5 h-5" />
+        {downloading ? <LuRefreshCw className="w-5 h-5 animate-spin" /> : <LuDownload className="w-5 h-5" />}
       </button>
     </div>
   );
@@ -253,6 +260,129 @@ export default function Registrations() {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const [editingRegistration, setEditingRegistration] = useState<Registration | null>(null);
+  const [downloadingRegistrationId, setDownloadingRegistrationId] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+
+  const downloadRegistrationPdf = useCallback(async (registrationId: string) => {
+    setDownloadingRegistrationId(registrationId);
+    try {
+      const res = await authFetch(`${API_BASE_URL}/api/v1/registrations/${registrationId}`);
+      const data = await res.json();
+      if (!res.ok) {
+        const errMsg = (data as { error?: string })?.error || "Failed to fetch registration details";
+        throw new Error(errMsg);
+      }
+
+      const detail = (data?.registration || data?.data || data) as ApiRegistrationPdfData;
+      if (!detail?.id) throw new Error("Invalid registration details response");
+
+      const isDarkTheme = document.documentElement.classList.contains("dark");
+      const pdfBlob = createRegistrationPdfBlob(detail, isDarkTheme);
+      const objectUrl = URL.createObjectURL(pdfBlob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = `registration-${detail.id.slice(0, 12)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not generate registration PDF");
+    } finally {
+      setDownloadingRegistrationId((prev) => (prev === registrationId ? null : prev));
+    }
+  }, []);
+
+  const exportRegistrationsCsv = useCallback(async () => {
+    setExporting(true);
+    try {
+      const all: Registration[] = [];
+      let currentPage = 1;
+      let hasMore = true;
+
+      while (hasMore) {
+        const params = new URLSearchParams();
+        if (selectedStatus !== "All Status") params.set("status", selectedStatus);
+        params.set("page", String(currentPage));
+        params.set("limit", String(LIMIT));
+
+        const res = await authFetch(`${API_BASE_URL}/api/v1/registrations?${params}`);
+        const data: RegistrationsResponse = await res.json();
+        if (!res.ok) {
+          const errMsg = (data as { error?: string })?.error || "Failed to export registrations";
+          throw new Error(errMsg);
+        }
+
+        const pageRows = data.registrations || [];
+        all.push(...pageRows);
+        hasMore = pageRows.length === LIMIT && all.length < data.total;
+        currentPage += 1;
+      }
+
+      const q = searchTerm.trim().toLowerCase();
+      const rows = all.filter((reg) => {
+        if (!q) return true;
+        return (
+          reg.clientName.toLowerCase().includes(q) ||
+          reg.id.toLowerCase().includes(q) ||
+          reg.clientEmail.toLowerCase().includes(q)
+        );
+      });
+
+      const headers = [
+        "ID",
+        "Client Name",
+        "Client Email",
+        "Phone",
+        "Type",
+        "Status",
+        "Assigned To",
+        "Submitted Date",
+        "Last Updated",
+        "Documents",
+      ];
+
+      const escapeCsv = (value: string | number | null | undefined) => {
+        const raw = value == null ? "" : String(value);
+        const escaped = raw.replace(/"/g, "\"\"");
+        return `"${escaped}"`;
+      };
+
+      const csvLines = [
+        headers.map(escapeCsv).join(","),
+        ...rows.map((reg) =>
+          [
+            reg.id,
+            reg.clientName,
+            reg.clientEmail,
+            reg.phone || "",
+            reg.type || "",
+            formatStatus(reg.status),
+            reg.assignedTo || "Unassigned",
+            formatDate(reg.submittedDate),
+            formatDate(reg.lastUpdated),
+            reg.documents,
+          ]
+            .map(escapeCsv)
+            .join(",")
+        ),
+      ];
+
+      const blob = new Blob([csvLines.join("\n")], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `registrations-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not export registrations");
+    } finally {
+      setExporting(false);
+    }
+  }, [searchTerm, selectedStatus]);
 
   // ── Fetch registrations ──────────────────────────────────────────────────
   const fetchRegistrations = useCallback(async (pageNum: number, status: string) => {
@@ -390,9 +520,13 @@ export default function Registrations() {
                   >
                     <LuRefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
                   </button>
-                  <button className="inline-flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg transition-colors">
-                    <LuDownload className="w-4 h-4" />
-                    Export
+                  <button
+                    onClick={() => void exportRegistrationsCsv()}
+                    disabled={exporting || loading}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {exporting ? <LuRefreshCw className="w-4 h-4 animate-spin" /> : <LuDownload className="w-4 h-4" />}
+                    {exporting ? "Exporting..." : "Export"}
                   </button>
                 </div>
               </div>
@@ -474,6 +608,8 @@ export default function Registrations() {
                           <RegistrationActionsCell
                             onView={() => router.push(`/admin/registrations/${registration.id}`)}
                             onEdit={() => setEditingRegistration(registration)}
+                            onDownload={() => void downloadRegistrationPdf(registration.id)}
+                            downloading={downloadingRegistrationId === registration.id}
                           />
                         </td>
                       </tr>

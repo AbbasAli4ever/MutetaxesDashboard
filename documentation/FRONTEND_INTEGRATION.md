@@ -25,6 +25,7 @@
    - [Customer Portal — Service Requests](#68-customer-portal--service-requests)
    - [Admin Customer Management](#69-admin-customer-management)
    - [File Upload Routes](#610-file-upload-routes)
+   - [Notification Routes](#611-notification-routes)
 7. [Error Handling](#7-error-handling)
 8. [HTTP Status Codes](#8-http-status-codes)
 9. [All 32 Permissions Reference](#9-all-32-permissions-reference)
@@ -1587,63 +1588,11 @@ Get the activity/history log for a service request.
 
 These endpoints let **ADMIN users** manage customer data — company profiles, stakeholders, documents, renewals, and service requests.
 
-Base path (list): `/api/v1/admin/customers`
-Base path (customer scoped): `/api/v1/admin/customers/:customerId`
+Base path: `/api/v1/admin/customers/:customerId`
 
 > All endpoints:
 > - Require `ADMIN` user type
 > - The `:customerId` must be a user with `type === "CUSTOMER"`
-
----
-
-#### `GET /api/v1/admin/customers`
-List customers for the **Customer Management table** with company and registration summary fields already flattened.
-
-**Permission required:** `USER_MANAGEMENT_READ`
-
-**Query parameters:**
-
-| Parameter          | Type    | Default | Description |
-|-------------------|---------|---------|-------------|
-| `search`          | string  | —       | Search across customer name, email, and company names |
-| `status`          | string  | —       | Customer user status filter: `active`, `inactive`, `true`, `false` |
-| `country`         | string  | —       | Country filter (company profile country / registration fallback) |
-| `registrationStatus` | string | —     | Registration status filter: `pending`, `in-progress`, `completed` |
-| `page`            | integer | `1`     | Page number |
-| `limit`           | integer | `20`    | Results per page |
-| `sortBy`          | string  | `createdAt` | `createdAt`, `name`, `email`, `lastActive` |
-| `sortOrder`       | string  | `desc`  | `asc` or `desc` |
-
-**Example:**
-
-```http
-GET /api/v1/admin/customers?search=james&status=active&country=Hong%20Kong&registrationStatus=completed&page=1&limit=10
-Authorization: Bearer <admin_token>
-```
-
-**Response `200`:**
-```json
-{
-  "success": true,
-  "total": 1,
-  "page": 1,
-  "limit": 10,
-  "customers": [
-    {
-      "id": 12,
-      "name": "James Whitfield",
-      "status": "active",
-      "email": "james.whitfield@gmail.com",
-      "companyName": "Whitfield Holdings Ltd",
-      "companyType": "Private Limited",
-      "country": "Hong Kong",
-      "registrationStatus": "completed"
-    }
-  ]
-}
-```
-
-This endpoint is intended for the admin customer list table and avoids calling `GET /users`.
 
 ---
 
@@ -2417,6 +2366,101 @@ Get a temporary signed URL to access a private S3 file.
 
 ---
 
+### 6.11 Notification Routes
+
+Use these endpoints for in-app notifications and real-time updates.
+
+Automatic notifications are currently emitted when admin actions happen in customer management flows:
+- Company profile created
+- Company profile updated
+- Company document upload marked complete
+- Renewal created
+
+---
+
+#### `POST /notifications`
+Create a notification.
+
+**Auth required:** No
+
+**Request body:**
+```json
+{
+  "actorId": 1,
+  "acteeId": 2,
+  "message": "Company profile created: Acme HK Limited",
+  "projectName": "Company Profile"
+}
+```
+
+| Field       | Type   | Required | Description |
+|-------------|--------|----------|-------------|
+| actorId     | number | Yes      | User who triggered the action |
+| acteeId     | number | Yes      | User who receives the notification |
+| message     | string | Yes      | Notification text |
+| projectName | string | Yes      | Module/context label |
+
+**Response `201`:**
+```json
+{
+  "success": true,
+  "message": "Notification created successfully",
+  "notification": {
+    "id": 12,
+    "actorId": 1,
+    "acteeId": 2,
+    "message": "Company profile created: Acme HK Limited",
+    "projectName": "Company Profile",
+    "isRead": false,
+    "createdAt": "2026-03-02T10:00:00.000Z",
+    "actor": { "id": 1, "name": "Super Admin", "email": "admin@mutetaxes.com" },
+    "actee": { "id": 2, "name": "Jane Doe", "email": "jane@example.com" }
+  }
+}
+```
+
+---
+
+#### `PATCH /notifications/:id/read`
+Mark a notification as read.
+
+**Auth required:** No
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "message": "Notification marked as read",
+  "notification": {
+    "id": 12,
+    "isRead": true
+  }
+}
+```
+
+---
+
+#### `GET /notifications/stream`
+Receive notifications via Server-Sent Events (SSE).
+
+**Auth required:** Yes — Bearer token
+
+**Important frontend behavior:**
+- On connect, backend sends current unread notifications as one SSE `data:` message containing `Notification[]`.
+- After that, each new notification is streamed as one SSE `data:` message containing a single `Notification` object.
+- If Redis is disconnected, backend sends `{"warning":"Real-time updates unavailable — Redis not connected"}` and closes the stream.
+
+**SSE payload examples:**
+```txt
+data: [{"id":12,"actorId":1,"acteeId":2,"message":"...","projectName":"Company Profile","isRead":false,"createdAt":"...","actor":{"id":1,"name":"Super Admin","email":"admin@mutetaxes.com"},"actee":{"id":2,"name":"Jane","email":"jane@example.com"}}]
+
+data: {"id":13,"actorId":1,"acteeId":2,"message":"Document \"Incorporation Cert\" upload completed","projectName":"Documents","isRead":false,"createdAt":"...","actor":{"id":1,"name":"Super Admin","email":"admin@mutetaxes.com"},"actee":{"id":2,"name":"Jane","email":"jane@example.com"}}
+```
+
+> Browser `EventSource` cannot attach custom `Authorization` headers. Use a fetch-stream approach (example in [Implementation Examples](#11-implementation-examples)) or an EventSource polyfill that supports headers.
+
+---
+
 ## 7. Error Handling
 
 ### Standard error response shapes
@@ -2603,6 +2647,27 @@ interface Ticket {
   assignedToId: number | null;
   assignedTo: { id: number; name: string; email: string } | null;
 }
+```
+
+### Notification
+
+```typescript
+interface Notification {
+  id: number;
+  actorId: number;
+  acteeId: number;
+  message: string;
+  projectName: string;
+  isRead: boolean;
+  createdAt: string; // ISO 8601
+  actor: { id: number; name: string; email: string };
+  actee: { id: number; name: string; email: string };
+}
+
+type NotificationStreamPayload =
+  | Notification[] // initial unread batch
+  | Notification   // real-time single event
+  | { warning: string }; // fallback when Redis is unavailable
 ```
 
 ### RegistrationListItem
@@ -2918,6 +2983,62 @@ export async function authorizedFetch(path: string, options: RequestInit = {}) {
 }
 ```
 
+### Notification Stream + Mark Read (TypeScript + Fetch stream)
+
+```typescript
+// notifications.ts
+import { authorizedFetch } from './auth';
+
+const BASE_URL = 'http://localhost:3000';
+
+export async function markNotificationRead(notificationId: number) {
+  const res = await authorizedFetch(`/notifications/${notificationId}/read`, {
+    method: 'PATCH',
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to mark notification as read');
+  return data.notification;
+}
+
+export async function openNotificationStream(
+  accessToken: string,
+  onPayload: (payload: NotificationStreamPayload) => void
+) {
+  const res = await fetch(`${BASE_URL}/notifications/stream`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: 'text/event-stream',
+    },
+  });
+
+  if (!res.ok || !res.body) {
+    throw new Error(`Failed to open stream: ${res.status}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE events are separated by blank lines
+    const events = buffer.split('\n\n');
+    buffer = events.pop() ?? '';
+
+    for (const event of events) {
+      const dataLine = event.split('\n').find((line) => line.startsWith('data: '));
+      if (!dataLine) continue;
+      const json = dataLine.replace('data: ', '');
+      onPayload(JSON.parse(json));
+    }
+  }
+}
+```
+
 ### Customer Document Upload (Two-Step S3 Flow)
 
 ```typescript
@@ -3190,6 +3311,9 @@ npm run dev
 | GET    | `/`                                                             | None      | —                        | Health check                                   |
 | GET    | `/health`                                                       | None      | —                        | Simple status                                  |
 | GET    | `/permissions`                                                  | None      | —                        | List all 32 permissions                        |
+| POST   | `/notifications`                                                | None      | —                        | Create notification                            |
+| PATCH  | `/notifications/:id/read`                                       | None      | —                        | Mark notification as read                      |
+| GET    | `/notifications/stream`                                         | Any       | —                        | SSE stream for authenticated user notifications |
 | POST   | `/auth/login`                                                   | None      | —                        | Login — returns tokens + user                  |
 | POST   | `/auth/refresh`                                                 | None      | —                        | Refresh access token                           |
 | GET    | `/auth/me`                                                      | Any       | —                        | Get current user profile                       |
@@ -3224,7 +3348,6 @@ npm run dev
 | GET    | `/api/v1/customer/service-requests/:requestId`                  | Customer  | `SUPPORT_TICKETS_READ`   | Get customer's own service request             |
 | PATCH  | `/api/v1/customer/service-requests/:requestId`                  | Customer  | `SUPPORT_TICKETS_UPDATE` | Update service request (pending only)          |
 | GET    | `/api/v1/customer/service-requests/:requestId/activity`         | Customer  | `SUPPORT_TICKETS_READ`   | Get service request activity log               |
-| GET    | `/api/v1/admin/customers`                                      | Admin     | `USER_MANAGEMENT_READ`   | List customers for customer management table   |
 | GET    | `/api/v1/admin/customers/:customerId`                           | Admin     | `USER_MANAGEMENT_READ`   | Get customer summary                           |
 | GET    | `/api/v1/admin/customers/:customerId/company-profile`           | Admin     | `USER_MANAGEMENT_READ`   | Get company profile                            |
 | POST   | `/api/v1/admin/customers/:customerId/company-profile`           | Admin     | `USER_MANAGEMENT_UPDATE` | Create company profile                         |

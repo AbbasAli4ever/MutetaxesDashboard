@@ -57,6 +57,7 @@ interface ApiStakeholder {
   registrationId: string;
   type: "individual" | "corporate";
   roles: ("shareholder" | "director")[];
+  isNominee?: boolean | null;
   fullName: string | null;
   nationality: string | null;
   email: string | null;
@@ -146,6 +147,7 @@ interface Person {
   id: string;
   type: "individual" | "corporate";
   roles: string[];
+  isNominee: boolean;
   fullName: string;
   companyName: string;
   countryOfIncorporation: string | null;
@@ -261,6 +263,7 @@ function mapApiToUi(api: ApiRegistrationDetail): RegistrationDetail {
       id: String(s.id),
       type: s.type,
       roles: s.roles,
+      isNominee: Boolean(s.isNominee),
       fullName: s.fullName || "",
       companyName: s.companyName || "",
       countryOfIncorporation: s.countryOfIncorporation,
@@ -397,6 +400,47 @@ function recalcPercentages(persons: Person[], totalShares: number): Person[] {
     if (!p.roles.includes("shareholder")) return p;
     const pct = totalShares > 0 ? Math.round((p.shareholding.shares / totalShares) * 10000) / 100 : 0;
     return { ...p, shareholding: { ...p.shareholding, percentage: pct } };
+  });
+}
+
+function recalcSharesFromPercentages(persons: Person[], totalShares: number): Person[] {
+  const shareholders = persons.filter((p) => p.roles.includes("shareholder"));
+  if (!shareholders.length) return persons;
+
+  const normalized = shareholders.map((p) => {
+    const clamped = Math.max(0, Math.min(100, Number(p.shareholding.percentage) || 0));
+    return Math.round(clamped * 100) / 100;
+  });
+
+  const sumPct = normalized.reduce((s, pct) => s + pct, 0);
+  const targetShares = totalShares > 0 ? Math.round((sumPct / 100) * totalShares) : 0;
+  const raws = normalized.map((pct) => (totalShares > 0 ? (pct / 100) * totalShares : 0));
+  const floors = raws.map((raw) => Math.floor(raw));
+  let remaining = Math.max(0, targetShares - floors.reduce((s, v) => s + v, 0));
+
+  const order = raws
+    .map((raw, idx) => ({ idx, frac: raw - Math.floor(raw) }))
+    .sort((a, b) => b.frac - a.frac);
+
+  const shares = [...floors];
+  for (let i = 0; i < order.length && remaining > 0; i += 1) {
+    shares[order[i].idx] += 1;
+    remaining -= 1;
+  }
+
+  let sIdx = 0;
+  return persons.map((p) => {
+    if (!p.roles.includes("shareholder")) return p;
+    const percentage = normalized[sIdx];
+    const nextShares = shares[sIdx];
+    sIdx += 1;
+    return {
+      ...p,
+      shareholding: {
+        shares: nextShares,
+        percentage,
+      },
+    };
   });
 }
 
@@ -715,6 +759,7 @@ function blankPerson(role: string): Person {
     id: `person-new-${Date.now()}`,
     type: "individual",
     roles: [role],
+    isNominee: false,
     fullName: "",
     companyName: "",
     countryOfIncorporation: null,
@@ -1451,9 +1496,14 @@ function ShareCapitalSection({
   const allocated = shareholders.reduce((s, p) => s + p.shareholding.shares, 0);
   const remaining = display.totalShares - allocated;
 
-  const updateShares = (id: string, shares: number) => {
-    const updated = draftPersons.map((p) => p.id === id && p.roles.includes("shareholder") ? { ...p, shareholding: { shares: Math.max(0, shares), percentage: 0 } } : p);
-    setDraftPersons(recalcPercentages(updated, draft.totalShares));
+  const updatePercentage = (id: string, percentage: number) => {
+    const clamped = Math.max(0, Math.min(100, percentage));
+    const updated = draftPersons.map((p) =>
+      p.id === id && p.roles.includes("shareholder")
+        ? { ...p, shareholding: { ...p.shareholding, percentage: clamped } }
+        : p
+    );
+    setDraftPersons(recalcSharesFromPercentages(updated, draft.totalShares));
   };
 
   const addShareholder = (personId: string, shares: number) => {
@@ -1504,7 +1554,7 @@ function ShareCapitalSection({
         <Field label="Total Share Capital" type="number" value={String(display.totalAmount)} editing={editing} required error={fieldErrors.totalAmount}
           onChange={(v) => setDraft((p) => ({ ...p, totalAmount: isNaN(Number(v)) ? p.totalAmount : Number(v) }))} />
         <Field label="Total Shares Issued" type="number" value={String(display.totalShares)} editing={editing} required error={fieldErrors.totalShares}
-          onChange={(v) => { const n = isNaN(Number(v)) ? draft.totalShares : Number(v); setDraft((p) => ({ ...p, totalShares: n })); setDraftPersons((prev) => recalcPercentages(prev, n)); }} />
+          onChange={(v) => { const n = isNaN(Number(v)) ? draft.totalShares : Number(v); setDraft((p) => ({ ...p, totalShares: n })); setDraftPersons((prev) => recalcSharesFromPercentages(prev, n)); }} />
       </div>
 
       <div className="mt-6">
@@ -1519,7 +1569,6 @@ function ShareCapitalSection({
           <div className="space-y-2">
             {shareholders.map((person) => {
               const pct = display.totalShares > 0 ? ((person.shareholding.shares / display.totalShares) * 100).toFixed(2) : "0.00";
-              const minShares = Math.max(1, Math.ceil(display.totalShares * 0.01));
               const isOnlyShareholder = shareholders.length === 1;
 
               return (
@@ -1534,11 +1583,18 @@ function ShareCapitalSection({
                   {editing ? (
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <div className="w-32">
-                        <input type="number" value={person.shareholding.shares} min={minShares} max={display.totalShares}
-                          onChange={(e) => updateShares(person.id, parseInt(e.target.value, 10) || 0)} className={inputCls + " text-center"} />
+                        <input
+                          type="number"
+                          value={person.shareholding.percentage}
+                          min={0}
+                          max={100}
+                          step="0.01"
+                          onChange={(e) => updatePercentage(person.id, parseFloat(e.target.value) || 0)}
+                          className={inputCls + " text-center"}
+                        />
                       </div>
                       <span className="text-xs text-gray-500 dark:text-gray-400 w-12 text-right font-medium">
-                        {((person.shareholding.shares / display.totalShares) * 100).toFixed(1)}%
+                        {person.shareholding.shares.toLocaleString()} sh
                       </span>
                       {!isOnlyShareholder && (
                         <button onClick={() => removeShareholder(person.id)} className="p-1.5 text-error-500 hover:text-error-600 hover:bg-error-50 dark:hover:bg-error-500/10 rounded-lg transition-colors" title="Remove">
@@ -1639,6 +1695,11 @@ function PersonCard({
               {person.roles.map((r) => (
                 <span key={r} className="px-1.5 py-0.5 text-[10px] font-medium bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400 rounded capitalize">{r}</span>
               ))}
+              {person.isNominee && (
+                <span className="px-1.5 py-0.5 text-[10px] font-medium bg-warning-50 dark:bg-warning-500/10 text-warning-700 dark:text-warning-300 rounded">
+                  Nominee
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -3126,6 +3187,7 @@ function RegistrationDetailContent({ id }: { id: string }) {
     ...(isNaN(Number(p.id)) ? {} : { id: Number(p.id) }),
     type: p.type,
     roles: p.roles,
+    isNominee: Boolean(p.isNominee),
     fullName: p.fullName || null,
     companyName: p.companyName || null,
     countryOfIncorporation: p.countryOfIncorporation || null,
