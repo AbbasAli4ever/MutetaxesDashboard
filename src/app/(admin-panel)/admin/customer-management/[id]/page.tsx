@@ -64,6 +64,30 @@ interface AdminCustomerSummaryApi {
   hasCompanyProfile?: boolean;
 }
 
+interface AdminCustomerDetailApiResponse {
+  customer?: {
+    id: number;
+    name: string;
+    email: string;
+    type: "CUSTOMER";
+    active: boolean;
+    lastActive: string | null;
+    createdAt?: string;
+    role?: string;
+  } | null;
+  linkedRegistration?: {
+    id: string;
+    status: "pending" | "in-progress" | "completed";
+    proposedCompanyName?: string | null;
+    assignedToId?: string | null;
+    createdAt?: string;
+    updatedAt?: string;
+  } | null;
+  flags?: {
+    hasCompanyProfile?: boolean;
+  } | null;
+}
+
 interface CustomerCompanyProfileApi {
   id: string;
   customerId: number;
@@ -960,22 +984,48 @@ function RenewalsTab({
   loading?: boolean;
   readOnly?: boolean;
 }) {
+  const CURRENCY_OPTIONS = [
+    { code: "USD", label: "USD" },
+    { code: "GBP", label: "GBP" },
+    { code: "SGD", label: "SGD" },
+    { code: "HKD", label: "HKD" },
+    { code: "AED", label: "AED" },
+    { code: "CHF", label: "CHF" },
+    { code: "EUR", label: "EUR" },
+  ];
+
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Partial<Renewal>>({});
+  const [draft, setDraft] = useState<Partial<Renewal> & { currency?: string; amountNumeric?: string }>({});
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  function openAdd() { setDraft({ name: "", dueDate: "", amount: "", status: "upcoming" }); setShowAddModal(true); }
+  function extractCurrencyAndAmount(display: string) {
+    const match = display.match(/^([A-Z]{3})\s+(.+)$/);
+    if (match) return { currency: match[1], amountNumeric: match[2].replace(/,/g, "") };
+    return { currency: "USD", amountNumeric: display.replace(/[^0-9.]/g, "") };
+  }
+
+  function toDateInputValue(display: string) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(display)) return display;
+    const slash = display.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (slash) return `${slash[3]}-${slash[2].padStart(2, "0")}-${slash[1].padStart(2, "0")}`;
+    const d = new Date(display);
+    if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    return "";
+  }
+
+  function openAdd() { setDraft({ name: "", dueDate: "", amount: "", status: "upcoming", currency: "USD", amountNumeric: "" }); setShowAddModal(true); }
 
   async function saveNew() {
     if (!draft.name?.trim()) return;
     setSaving(true);
     try {
+      const composedAmount = draft.amountNumeric ? `${draft.currency || "USD"} ${draft.amountNumeric}` : "";
       await onCreateRenewal?.({
         name: draft.name!,
         dueDate: draft.dueDate || "",
-        amount: draft.amount || "",
+        amount: composedAmount,
         status: (draft.status as Renewal["status"]) || "upcoming",
         renewalType: draft.renewalType || undefined,
         notes: draft.notes || undefined,
@@ -989,15 +1039,20 @@ function RenewalsTab({
     }
   }
 
-  function startEdit(r: Renewal) { setEditingId(r.id); setDraft({ ...r }); }
+  function startEdit(r: Renewal) {
+    const { currency, amountNumeric } = extractCurrencyAndAmount(r.amount);
+    setEditingId(r.id);
+    setDraft({ ...r, dueDate: toDateInputValue(r.dueDate), currency, amountNumeric });
+  }
   function cancelEdit() { setEditingId(null); setDraft({}); }
   async function saveEdit(id: string) {
     setSaving(true);
     try {
+      const composedAmount = draft.amountNumeric !== undefined ? `${draft.currency || "USD"} ${draft.amountNumeric}` : undefined;
       await onUpdateRenewal?.(id, {
         name: typeof draft.name === "string" ? draft.name : undefined,
         dueDate: typeof draft.dueDate === "string" ? draft.dueDate : undefined,
-        amount: typeof draft.amount === "string" ? draft.amount : undefined,
+        amount: composedAmount,
         status: draft.status as Renewal["status"] | undefined,
         renewalType: typeof draft.renewalType === "string" ? draft.renewalType : undefined,
         notes: typeof draft.notes === "string" ? draft.notes : undefined,
@@ -1065,8 +1120,39 @@ function RenewalsTab({
                   {isEditing ? (
                     <div className="flex-1 grid grid-cols-1 sm:grid-cols-4 gap-3 mr-3">
                       <input value={draft.name ?? ""} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} placeholder="Renewal name" className={inputCls} />
-                      <input value={draft.dueDate ?? ""} onChange={(e) => setDraft((d) => ({ ...d, dueDate: e.target.value }))} placeholder="Due date" className={inputCls} />
-                      <input value={draft.amount ?? ""} onChange={(e) => setDraft((d) => ({ ...d, amount: e.target.value }))} placeholder="Amount (e.g. HKD 2,200)" className={inputCls} />
+                      <DatePicker
+                        id={`renewal-edit-due-date-${r.id}`}
+                        mode="single"
+                        placeholder="Due date"
+                        defaultDate={draft.dueDate || undefined}
+                        onChange={(dates) => {
+                          if (dates[0]) {
+                            const dt = dates[0];
+                            const yyyy = dt.getFullYear();
+                            const mm = String(dt.getMonth() + 1).padStart(2, "0");
+                            const dd = String(dt.getDate()).padStart(2, "0");
+                            setDraft((prev) => ({ ...prev, dueDate: `${yyyy}-${mm}-${dd}` }));
+                          }
+                        }}
+                      />
+                      <div className="relative">
+                        <select
+                          value={draft.currency ?? "USD"}
+                          onChange={(e) => setDraft((d) => ({ ...d, currency: e.target.value }))}
+                          className="absolute left-1 top-1/2 -translate-y-1/2 z-10 h-8 pl-2 pr-1 text-xs font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 border-0 rounded-md focus:outline-none focus:ring-0 appearance-none cursor-pointer"
+                        >
+                          {CURRENCY_OPTIONS.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
+                        </select>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={draft.amountNumeric ?? ""}
+                          onChange={(e) => setDraft((d) => ({ ...d, amountNumeric: e.target.value }))}
+                          placeholder="Amount"
+                          className={`${inputCls} pl-16`}
+                        />
+                      </div>
                       <select value={draft.status ?? "upcoming"} onChange={(e) => setDraft((d) => ({ ...d, status: e.target.value as Renewal["status"] }))} className={inputCls}>
                         {Object.entries(RENEWAL_STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
                       </select>
@@ -1127,14 +1213,43 @@ function RenewalsTab({
                 <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">Renewal Name <span className="text-error-500">*</span></label>
                 <input value={draft.name ?? ""} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} placeholder="e.g. Business Registration" className={inputCls} />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">Due Date</label>
-                  <input value={draft.dueDate ?? ""} onChange={(e) => setDraft((d) => ({ ...d, dueDate: e.target.value }))} placeholder="e.g. 30/4/2026" className={inputCls} />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">Amount</label>
-                  <input value={draft.amount ?? ""} onChange={(e) => setDraft((d) => ({ ...d, amount: e.target.value }))} placeholder="e.g. HKD 2,200" className={inputCls} />
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">Due Date</label>
+                <DatePicker
+                  id="renewal-add-due-date"
+                  mode="single"
+                  placeholder="Select due date"
+                  defaultDate={draft.dueDate || undefined}
+                  onChange={(dates) => {
+                    if (dates[0]) {
+                      const d = dates[0];
+                      const yyyy = d.getFullYear();
+                      const mm = String(d.getMonth() + 1).padStart(2, "0");
+                      const dd = String(d.getDate()).padStart(2, "0");
+                      setDraft((prev) => ({ ...prev, dueDate: `${yyyy}-${mm}-${dd}` }));
+                    }
+                  }}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">Amount</label>
+                <div className="relative">
+                  <select
+                    value={draft.currency ?? "USD"}
+                    onChange={(e) => setDraft((d) => ({ ...d, currency: e.target.value }))}
+                    className="absolute left-1 top-1/2 -translate-y-1/2 z-10 h-8 pl-2 pr-1 text-xs font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 border-0 rounded-md focus:outline-none focus:ring-0 appearance-none cursor-pointer"
+                  >
+                    {CURRENCY_OPTIONS.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
+                  </select>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={draft.amountNumeric ?? ""}
+                    onChange={(e) => setDraft((d) => ({ ...d, amountNumeric: e.target.value }))}
+                    placeholder="e.g. 2200"
+                    className={`${inputCls} pl-16`}
+                  />
                 </div>
               </div>
               <div>
@@ -1657,7 +1772,7 @@ function CustomerDetailContent() {
 
       try {
         const [summaryRes, companyProfileRes, stakeholdersRes] = await Promise.all([
-          authJson<{ data?: AdminCustomerSummaryApi }>(`${API_BASE_URL}/api/v1/admin/customers/${customerId}`),
+          authJson<{ data?: AdminCustomerDetailApiResponse }>(`${API_BASE_URL}/api/v1/admin/customers/${customerId}`),
           authFetch(`${API_BASE_URL}/api/v1/admin/customers/${customerId}/company-profile`),
           authJson<{ data?: CustomerStakeholderApi[] }>(`${API_BASE_URL}/api/v1/admin/customers/${customerId}/stakeholders?limit=100&page=1`),
         ]);
@@ -1673,7 +1788,16 @@ function CustomerDetailContent() {
 
         if (cancelled) return;
 
-        setSummary(summaryRes.data ?? null);
+        const rawData = summaryRes.data ?? null;
+        if (rawData?.customer) {
+          setSummary({
+            ...rawData.customer,
+            latestRegistration: rawData.linkedRegistration ?? null,
+            hasCompanyProfile: rawData.flags?.hasCompanyProfile ?? false,
+          });
+        } else {
+          setSummary(null);
+        }
         setCompanyProfileApi(companyProfile);
         setStakeholdersApi(stakeholdersRes.data ?? []);
 
@@ -2102,8 +2226,8 @@ function CustomerDetailContent() {
               <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${customer.active ? "bg-success-50 text-success-700 dark:bg-success-500/10 dark:text-success-400" : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"}`}>
                 {customer.active ? "Active" : "Inactive"}
               </span>
-              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${getStatusStyle(customer.registrationStatus)}`}>
-                {customer.registrationStatus.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")}
+              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${getStatusStyle(summary.latestRegistration?.status || "pending")}`}>
+                {(summary.latestRegistration?.status || "pending").split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")}
               </span>
             </div>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">

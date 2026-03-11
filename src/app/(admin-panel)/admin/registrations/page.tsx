@@ -244,7 +244,7 @@ function EditStatusModal({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-const LIMIT = 20;
+const LIMIT = 10;
 
 export default function Registrations() {
   const router = useRouter();
@@ -631,23 +631,43 @@ export default function Registrations() {
             )}
 
             {/* Pagination */}
-            {!loading && totalPages > 1 && (
-              <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between">
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Page {page} of {totalPages} · {total} total
+            {!loading && filteredData.length > 0 && (
+              <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between gap-4 flex-wrap">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Showing {Math.min((page - 1) * LIMIT + 1, total)}–{Math.min(page * LIMIT, total)} of {total.toLocaleString()}
                 </p>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
                   <button
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
                     disabled={page === 1}
-                    className="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   >
                     <LuChevronLeft className="w-4 h-4" />
                   </button>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+                    .reduce<(number | "…")[]>((acc, p, i, arr) => {
+                      if (i > 0 && (p as number) - (arr[i - 1] as number) > 1) acc.push("…");
+                      acc.push(p);
+                      return acc;
+                    }, [])
+                    .map((p, i) =>
+                      p === "…" ? (
+                        <span key={`e-${i}`} className="px-2 text-gray-400 text-sm">…</span>
+                      ) : (
+                        <button
+                          key={p}
+                          onClick={() => setPage(p as number)}
+                          className={`w-8 h-8 text-sm font-medium rounded-lg transition-colors ${page === p ? "bg-brand-500 text-white" : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"}`}
+                        >
+                          {p}
+                        </button>
+                      )
+                    )}
                   <button
                     onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                     disabled={page === totalPages}
-                    className="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   >
                     <LuChevronRight className="w-4 h-4" />
                   </button>

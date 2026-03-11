@@ -845,6 +845,7 @@ function ShareCapitalAddDropdown({
 function blankNewPerson() {
   return {
     type: "individual" as "individual" | "corporate",
+    isNominee: false,
     fullName: "", companyName: "", nationality: "", email: "", phone: "",
     street: "", city: "", state: "", postalCode: "", country: "",
     countryOfIncorporation: "", registrationNumber: "",
@@ -892,7 +893,7 @@ function AddPersonDropdown({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const set = (k: keyof ReturnType<typeof blankNewPerson>) => (v: string) => setForm((p) => ({ ...p, [k]: v }));
+  const set = (k: keyof ReturnType<typeof blankNewPerson>) => (v: string | boolean) => setForm((p) => ({ ...p, [k]: v }));
 
   // ── Existing tab share calculations ────────────────────────────────────────
   const existingSharesNum = parseInt(existingShares, 10);
@@ -927,8 +928,12 @@ function AddPersonDropdown({
 
   const newErrors = {
     name: form.type === "individual" ? (!form.fullName.trim() ? "Required" : "") : (!form.companyName.trim() ? "Required" : ""),
+    nationality: form.type === "individual" && !form.nationality.trim() ? "Required" : "",
     email: !form.email.trim() ? "Required" : !isValidEmail(form.email) ? "Invalid email" : "",
     phone: !form.phone.trim() ? "Required" : "",
+    street: !form.street.trim() ? "Required" : "",
+    city: !form.city.trim() ? "Required" : "",
+    postalCode: !form.postalCode.trim() ? "Required" : "",
     country: !form.country.trim() ? "Required" : "",
     shares: isShareholder
       ? (!form.shares.trim() ? "Required"
@@ -974,6 +979,7 @@ function AddPersonDropdown({
       const person: Person = {
         ...p,
         type: form.type,
+        isNominee: form.isNominee,
         fullName: form.type === "individual" ? form.fullName.trim() : "",
         companyName: form.type === "corporate" ? form.companyName.trim() : "",
         countryOfIncorporation: form.countryOfIncorporation.trim() || null,
@@ -1138,6 +1144,18 @@ function AddPersonDropdown({
                   </div>
                 </div>
 
+                {/* Nominee toggle */}
+                <div>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">{newRole === "shareholder" ? "Shareholder" : "Director"} Name</label>
+                  <div className="flex rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 text-xs font-medium">
+                    <button onClick={() => set("isNominee")(false)} className={`flex-1 py-1.5 transition-colors ${!form.isNominee ? "bg-brand-500 text-white" : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"}`}>Own Name</button>
+                    <button onClick={() => set("isNominee")(true)} className={`flex-1 py-1.5 transition-colors ${form.isNominee ? "bg-brand-500 text-white" : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"}`}>Nominee</button>
+                  </div>
+                  {form.isNominee && (
+                    <p className="mt-1 text-[10px] text-warning-600 dark:text-warning-400">This {newRole} will be marked as a nominee.</p>
+                  )}
+                </div>
+
                 {/* Name row */}
                 {form.type === "individual" ? (
                   <div className="grid grid-cols-2 gap-3">
@@ -1147,8 +1165,9 @@ function AddPersonDropdown({
                       {touched && newErrors.name && <p className="mt-1 text-xs text-error-500">{newErrors.name}</p>}
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Nationality</label>
-                      <input value={form.nationality} onChange={(e) => set("nationality")(e.target.value)} placeholder="e.g. HK" className={inputCls} />
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Nationality <span className="text-error-500">*</span></label>
+                      <input value={form.nationality} onChange={(e) => set("nationality")(e.target.value)} placeholder="e.g. HK" className={touched && newErrors.nationality ? inputErrCls : inputCls} />
+                      {touched && newErrors.nationality && <p className="mt-1 text-xs text-error-500">{newErrors.nationality}</p>}
                     </div>
                   </div>
                 ) : (
@@ -1187,11 +1206,20 @@ function AddPersonDropdown({
                 <div>
                   <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Address</p>
                   <div className="space-y-2">
-                    <input value={form.street} onChange={(e) => set("street")(e.target.value)} placeholder="Street address" className={inputCls} />
+                    <div>
+                      <input value={form.street} onChange={(e) => set("street")(e.target.value)} placeholder="Street address *" className={touched && newErrors.street ? inputErrCls : inputCls} />
+                      {touched && newErrors.street && <p className="mt-1 text-xs text-error-500">{newErrors.street}</p>}
+                    </div>
                     <div className="grid grid-cols-2 gap-2">
-                      <input value={form.city} onChange={(e) => set("city")(e.target.value)} placeholder="City" className={inputCls} />
+                      <div>
+                        <input value={form.city} onChange={(e) => set("city")(e.target.value)} placeholder="City *" className={touched && newErrors.city ? inputErrCls : inputCls} />
+                        {touched && newErrors.city && <p className="mt-1 text-xs text-error-500">{newErrors.city}</p>}
+                      </div>
                       <input value={form.state} onChange={(e) => set("state")(e.target.value)} placeholder="State / Province" className={inputCls} />
-                      <input value={form.postalCode} onChange={(e) => set("postalCode")(e.target.value)} placeholder="Postal code" className={inputCls} />
+                      <div>
+                        <input value={form.postalCode} onChange={(e) => set("postalCode")(e.target.value)} placeholder="Postal code *" className={touched && newErrors.postalCode ? inputErrCls : inputCls} />
+                        {touched && newErrors.postalCode && <p className="mt-1 text-xs text-error-500">{newErrors.postalCode}</p>}
+                      </div>
                       <div>
                         <input value={form.country} onChange={(e) => set("country")(e.target.value)} placeholder="Country *" className={touched && newErrors.country ? inputErrCls : inputCls} />
                         {touched && newErrors.country && <p className="mt-1 text-xs text-error-500">{newErrors.country}</p>}
@@ -1828,12 +1856,13 @@ function useDocState() {
 function ShareholdersSection({
   persons, totalShares, onSave,
   sharedDraft, onSharedDraftChange, canEdit = true,
-  onDocumentReplace,
+  onDocumentReplace, onAddPerson,
 }: {
   persons: Person[]; totalShares: number; onSave: (p: Person[]) => Promise<void>;
   sharedDraft: Person[] | null; onSharedDraftChange: (p: Person[]) => void;
   canEdit?: boolean;
   onDocumentReplace?: (personId: string, docType: string, file: File) => Promise<void>;
+  onAddPerson?: (updatedPersons: Person[]) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [touched, setTouched] = useState(false);
@@ -1850,13 +1879,16 @@ function ShareholdersSection({
   const draftShareholders = draft.filter((p) => p.roles.includes("shareholder"));
   const displayPersons = editing ? draft : persons;
   const displayShareholders = displayPersons.filter((p) => p.roles.includes("shareholder"));
-  const allPersonsValid = draftShareholders.every((p) => Object.values(validatePerson(p)).every((e) => !e));
+  const allPersonsValid = draftShareholders
+    .filter((p) => p.id.startsWith("person-new-"))
+    .every((p) => Object.values(validatePerson(p)).every((e) => !e));
 
   const directorCandidates = draft.filter((p) => p.roles.includes("director") && !p.roles.includes("shareholder"));
 
   const updatePerson = (id: string, updated: Person) => setDraft((prev) => prev.map((p) => (p.id === id ? updated : p)));
   const removeShareholder = (id: string) => setDraft((prev) => prev.filter((p) => p.id !== id));
-  const addExistingShareholder = (personId: string, adjustments: { id: string; shares: number }[], newShares: number) => {
+  const addExistingShareholder = async (personId: string, adjustments: { id: string; shares: number }[], newShares: number) => {
+    let next: Person[] = [];
     setDraft((prev) => {
       let updated = prev.map((p) => {
         if (p.id === personId && !p.roles.includes("shareholder")) {
@@ -1865,18 +1897,25 @@ function ShareholdersSection({
         const adj = adjustments.find((a) => a.id === p.id);
         return adj ? { ...p, shareholding: { shares: adj.shares, percentage: 0 } } : p;
       });
-      return recalcPercentages(updated, totalShares);
+      next = recalcPercentages(updated, totalShares);
+      return next;
     });
+    setTouched(true);
+    if (onAddPerson) await onAddPerson(next);
   };
-  const addNewWithAdjustments = (person: Person, adjustments: { id: string; shares: number }[]) => {
+  const addNewWithAdjustments = async (person: Person, adjustments: { id: string; shares: number }[]) => {
+    let next: Person[] = [];
     setDraft((prev) => {
       let updated = prev.map((p) => {
         const adj = adjustments.find((a) => a.id === p.id);
         return adj ? { ...p, shareholding: { shares: adj.shares, percentage: 0 } } : p;
       });
       updated = [...updated, { ...person, shareholding: { shares: person.shareholding.shares, percentage: 0 } }];
-      return recalcPercentages(updated, totalShares);
+      next = recalcPercentages(updated, totalShares);
+      return next;
     });
+    setTouched(true);
+    if (onAddPerson) await onAddPerson(next);
   };
 
   const handleDocReplace = async (personId: string, docType: string, file: File) => {
@@ -1940,12 +1979,13 @@ function ShareholdersSection({
 function DirectorsSection({
   persons, totalShares, onSave,
   sharedDraft, onSharedDraftChange, canEdit = true,
-  onDocumentReplace,
+  onDocumentReplace, onAddPerson,
 }: {
   persons: Person[]; totalShares: number; onSave: (p: Person[]) => Promise<void>;
   sharedDraft: Person[] | null; onSharedDraftChange: (p: Person[]) => void;
   canEdit?: boolean;
   onDocumentReplace?: (personId: string, docType: string, file: File) => Promise<void>;
+  onAddPerson?: (updatedPersons: Person[]) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [touched, setTouched] = useState(false);
@@ -1962,15 +2002,25 @@ function DirectorsSection({
   const draftDirectors = draft.filter((p) => p.roles.includes("director"));
   const displayPersons = editing ? draft : persons;
   const displayDirectors = displayPersons.filter((p) => p.roles.includes("director"));
-  const allPersonsValid = draftDirectors.every((p) => Object.values(validatePerson(p)).every((e) => !e));
+  const allPersonsValid = draftDirectors
+    .filter((p) => p.id.startsWith("person-new-"))
+    .every((p) => Object.values(validatePerson(p)).every((e) => !e));
 
   const shareholderCandidates = draft.filter((p) => p.roles.includes("shareholder") && !p.roles.includes("director"));
 
   const updatePerson = (id: string, updated: Person) => setDraft((prev) => prev.map((p) => (p.id === id ? updated : p)));
   const removeDirector = (id: string) => setDraft((prev) => prev.filter((p) => p.id !== id));
-  const addExistingDirector = (personId: string) =>
-    setDraft((prev) => prev.map((p) => p.id === personId && !p.roles.includes("director") ? { ...p, roles: [...p.roles, "director"] } : p));
-  const addNewDirectorWithAdjustments = (person: Person, adjustments: { id: string; shares: number }[]) => {
+  const addExistingDirector = async (personId: string) => {
+    let next: Person[] = [];
+    setDraft((prev) => {
+      next = prev.map((p) => p.id === personId && !p.roles.includes("director") ? { ...p, roles: [...p.roles, "director"] } : p);
+      return next;
+    });
+    setTouched(true);
+    if (onAddPerson) await onAddPerson(next);
+  };
+  const addNewDirectorWithAdjustments = async (person: Person, adjustments: { id: string; shares: number }[]) => {
+    let next: Person[] = [];
     setDraft((prev) => {
       if (adjustments.length > 0) {
         let updated = prev.map((p) => {
@@ -1978,10 +2028,14 @@ function DirectorsSection({
           return adj ? { ...p, shareholding: { shares: adj.shares, percentage: 0 } } : p;
         });
         updated = [...updated, { ...person, shareholding: { shares: person.shareholding.shares, percentage: 0 } }];
-        return recalcPercentages(updated, totalShares);
+        next = recalcPercentages(updated, totalShares);
+        return next;
       }
-      return [...prev, person];
+      next = [...prev, person];
+      return next;
     });
+    setTouched(true);
+    if (onAddPerson) await onAddPerson(next);
   };
 
   const handleDocReplace = async (personId: string, docType: string, file: File) => {
@@ -3429,13 +3483,17 @@ function RegistrationDetailContent({ id }: { id: string }) {
         sharedDraft={sharedPersonsDraft}
         onSharedDraftChange={setSharedPersonsDraft}
         onSave={async (p) => {
-          // Merge latest documents from reg.persons (updated by handleDocumentReplace) into the draft
           const merged = p.map((person) => {
             const live = regRef.current?.persons.find((r) => r.id === person.id);
             return live ? { ...person, documents: live.documents } : person;
           });
           await patchRegistration({ persons: merged.map(personToApiShape) });
           updatePersons(merged);
+          setSharedPersonsDraft(null);
+        }}
+        onAddPerson={async (p) => {
+          await patchRegistration({ persons: p.map(personToApiShape) });
+          updatePersons(p);
           setSharedPersonsDraft(null);
         }}
         onDocumentReplace={handleDocumentReplace}
@@ -3453,6 +3511,11 @@ function RegistrationDetailContent({ id }: { id: string }) {
           });
           await patchRegistration({ persons: merged.map(personToApiShape) });
           updatePersons(merged);
+          setSharedPersonsDraft(null);
+        }}
+        onAddPerson={async (p) => {
+          await patchRegistration({ persons: p.map(personToApiShape) });
+          updatePersons(p);
           setSharedPersonsDraft(null);
         }}
         onDocumentReplace={handleDocumentReplace}

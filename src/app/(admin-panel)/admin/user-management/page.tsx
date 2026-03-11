@@ -8,6 +8,8 @@ import {
   LuTrash2,
   LuX,
   LuChevronDown,
+  LuChevronLeft,
+  LuChevronRight,
   LuCheck,
   LuLoader,
   LuTriangleAlert,
@@ -20,6 +22,7 @@ import PageAccessGuard from "@/components/common/PageAccessGuard";
 import { authFetch, API_BASE_URL } from "@/lib/auth";
 
 const API_BASE = API_BASE_URL;
+const PAGE_SIZE = 10;
 
 // ─── API shapes ──────────────────────────────────────────────────────────────
 
@@ -89,6 +92,7 @@ function AddUserButton({ onClick }: { onClick: () => void }) {
 
 export default function UserManagement() {
   const [searchTerm, setSearchTerm] = useState("");
+  const [page, setPage] = useState(1);
   const [users, setUsers] = useState<UserListItem[]>([]);
   const [badges, setBadges] = useState<Badge[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -176,6 +180,9 @@ export default function UserManagement() {
       u.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
       String(u.id).includes(searchTerm)
   );
+
+  const totalPages = Math.max(1, Math.ceil(filteredData.length / PAGE_SIZE));
+  const paginated = filteredData.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   // ── Add user ──
   const handleAddUser = async () => {
@@ -285,7 +292,7 @@ export default function UserManagement() {
               type="text"
               placeholder="Search users..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
               className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all"
             />
           </div>
@@ -317,7 +324,7 @@ export default function UserManagement() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
-                {filteredData.map((user) => (
+                {paginated.map((user) => (
                   <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                     <td className="px-4 py-4 whitespace-nowrap"><span className="text-sm font-medium text-gray-900 dark:text-white">#{user.id}</span></td>
                     <td className="px-4 py-4 whitespace-nowrap"><span className="text-sm font-medium text-gray-900 dark:text-white">{user.name}</span></td>
@@ -344,6 +351,50 @@ export default function UserManagement() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {!isLoading && !error && paginated.length > 0 && (
+          <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between gap-4 flex-wrap">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Showing {Math.min((page - 1) * PAGE_SIZE + 1, filteredData.length)}–{Math.min(page * PAGE_SIZE, filteredData.length)} of {filteredData.length.toLocaleString()}
+            </p>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <LuChevronLeft className="w-4 h-4" />
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+                .reduce<(number | "…")[]>((acc, p, i, arr) => {
+                  if (i > 0 && (p as number) - (arr[i - 1] as number) > 1) acc.push("…");
+                  acc.push(p);
+                  return acc;
+                }, [])
+                .map((p, i) =>
+                  p === "…" ? (
+                    <span key={`e-${i}`} className="px-2 text-gray-400 text-sm">…</span>
+                  ) : (
+                    <button
+                      key={p}
+                      onClick={() => setPage(p as number)}
+                      className={`w-8 h-8 text-sm font-medium rounded-lg transition-colors ${page === p ? "bg-brand-500 text-white" : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"}`}
+                    >
+                      {p}
+                    </button>
+                  )
+                )}
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <LuChevronRight className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         )}
 

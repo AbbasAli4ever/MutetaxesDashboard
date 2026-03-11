@@ -8,7 +8,7 @@ interface Role {
   id: string|null;
   name: string;
   displayName: string;
-  users: number;
+  userCount?: number;
   permissions: number | {id: string; code: string}[];
   createdAt: string;
   color: string;
@@ -32,12 +32,6 @@ const BADGE_COLORS = [
 { label: "Indigo", value: "#6366F1" },
 { label: "Orange", value: "#F97316" },
 
-];
-
-const initialRoles: Role[] = [
-  { id: "admin", name: "admin", displayName: "Administrator", users: 2, permissions: 18, createdAt: "01/01/2024", color: "#EF4444" },
-  { id: "registration_coordinator", name: "registration_coordinator", displayName: "Registration Coordinator", users: 5, permissions: 5, createdAt: "01/01/2024", color: "#3B82F6" },
-  { id: "registration_support", name: "registration_support", displayName: "Registration Support", users: 8, permissions: 5, createdAt: "01/01/2024", color: "#22C55E" },
 ];
 
 /* ─── Create Role Modal ─────────────────────────────────────────────────── */
@@ -759,7 +753,7 @@ useEffect(()=>{
                   <td className="py-4 text-sm text-gray-700 dark:text-gray-300" title={role.displayName ?? ""}>
                     {(role.displayName ?? "").length > 24 ? (role.displayName ?? "").slice(0, 24) + "…" : (role.displayName ?? "")}
                   </td>
-                  <td className="py-4 text-sm text-gray-700 dark:text-gray-300">{role.users ?? 0} users</td>
+                  <td className="py-4 text-sm text-gray-700 dark:text-gray-300">{role.userCount ?? 0} users</td>
                   <td className="py-4">
                     <span className="text-sm text-brand-500">{Array.isArray(role.permissions) ? role.permissions.length : role.permissions} permissions</span>
                   </td>
