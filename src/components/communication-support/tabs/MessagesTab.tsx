@@ -1,337 +1,251 @@
 "use client";
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import {
-  LuMessageSquarePlus,
-  LuPaperclip,
-  LuSend,
-} from "react-icons/lu";
+import React, { useEffect, useRef, useState, useCallback } from "react";
+import { LuPaperclip, LuSend, LuLoader, LuShieldCheck } from "react-icons/lu";
 import { FaRegUser } from "react-icons/fa";
+import { useAuth } from "@/context/AuthContext";
+import { authFetch, API_BASE_URL } from "@/lib/auth";
+import { useChat } from "@/hooks/useChat";
+import type { ApiConversationDetail, ApiConversation } from "@/types/chat";
 
-
-type SenderType = "me" | "them";
-
-interface MessageItem {
-  id: number;
-  sender: SenderType;
-  author: string;
-  text: string;
-  timestamp: string;
-}
-
-interface ThreadItem {
-  id: string;
-  title: string;
-  participant: string;
-  preview: string;
-  date: string;
-  unread?: boolean;
-}
-
-const threads: ThreadItem[] = [
-  {
-    id: "reports-q4",
-    title: "Q4 2025 Financial Reports",
-    participant: "Emily Chan, CPA",
-    preview: "The reports have been uploaded to your portal.",
-    date: "5/1/2026",
-  },
-  {
-    id: "tax-filing",
-    title: "Tax Filing for 2024/25",
-    participant: "Emily Chan, CPA",
-    preview: "We need additional documents for the tax computation.",
-    date: "3/1/2026",
-    unread: true,
-  },
-  {
-    id: "registration-renewal",
-    title: "Business Registration Renewal",
-    participant: "Emily Chan, CPA",
-    preview: "Renewal has been completed successfully.",
-    date: "20/12/2025",
-  },
-];
-
-const initialMessages: Record<string, MessageItem[]> = {
-  "reports-q4": [
-    {
-      id: 1,
-      sender: "them",
-      author: "Emily Chan, CPA",
-      text: "Your Q4 2025 financial reports are now available. Let me know if you need a walkthrough.",
-      timestamp: "2026-01-05 09:10 AM",
-    },
-    {
-      id: 2,
-      sender: "me",
-      author: "You",
-      text: "Thanks, I will review them today.",
-      timestamp: "2026-01-05 09:12 AM",
-    },
-  ],
-  "tax-filing": [
-    {
-      id: 3,
-      sender: "them",
-      author: "Emily Chan, CPA",
-      text: "Hi David, I hope you are doing well. Regarding your tax filing for 2024/25, we need some additional documents to complete the computation.",
-      timestamp: "2026-01-03 10:30 AM",
-    },
-    {
-      id: 4,
-      sender: "me",
-      author: "You",
-      text: "Hi Emily, sure. What documents do you need?",
-      timestamp: "2026-01-03 11:15 AM",
-    },
-    {
-      id: 5,
-      sender: "them",
-      author: "Emily Chan, CPA",
-      text: "We need copies of your rental agreements and proof of capital allowances claimed. If you could upload them to the portal, that would be great.",
-      timestamp: "2026-01-03 11:30 AM",
-    },
-  ],
-  "registration-renewal": [
-    {
-      id: 6,
-      sender: "them",
-      author: "Emily Chan, CPA",
-      text: "The business registration renewal has been completed successfully.",
-      timestamp: "2025-12-20 03:05 PM",
-    },
-    {
-      id: 7,
-      sender: "me",
-      author: "You",
-      text: "Great, thank you for the update.",
-      timestamp: "2025-12-20 03:15 PM",
-    },
-  ],
-};
-
-const replyPool = [
-  "Thanks for confirming. I will review and get back to you shortly.",
-  "Got it. Please upload the files and we will proceed.",
-  "Appreciate it. Let me know if you need anything else from my end.",
-];
+const formatTimestamp = (iso: string) =>
+  new Date(iso).toLocaleString("en-US", {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
 
 const MessagesTab: React.FC = () => {
-  const [activeThreadId, setActiveThreadId] = useState<string>("tax-filing");
-  const [messagesByThread, setMessagesByThread] =
-    useState<Record<string, MessageItem[]>>(initialMessages);
+  const { user, getToken, logout } = useAuth();
+
+  const [loadingList, setLoadingList] = useState(true);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeDetail, setActiveDetail] = useState<ApiConversationDetail | null>(null);
+
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+
   const [messageInput, setMessageInput] = useState("");
-  const replyTimeouts = useRef<number[]>([]);
+
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
 
-  const activeThread = useMemo(
-    () => threads.find((thread) => thread.id === activeThreadId),
-    [activeThreadId]
-  );
-
-  const activeMessages = messagesByThread[activeThreadId] ?? [];
-
-  const handleSendMessage = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const trimmed = messageInput.trim();
-    if (!trimmed) {
-      return;
-    }
-
-    setMessagesByThread((prev) => {
-      const updated = prev[activeThreadId] ?? [];
-      return {
-        ...prev,
-        [activeThreadId]: [
-          ...updated,
-          {
-            id: Date.now(),
-            sender: "me",
-            author: "You",
-            text: trimmed,
-            timestamp: "Just now",
-          },
-        ],
-      };
-    });
-    setMessageInput("");
-
-    const timeoutId = window.setTimeout(() => {
-      const replyText =
-        replyPool[Math.floor(Math.random() * replyPool.length)];
-      setMessagesByThread((prev) => {
-        const updated = prev[activeThreadId] ?? [];
-        return {
-          ...prev,
-          [activeThreadId]: [
-            ...updated,
-            {
-              id: Date.now() + 1,
-              sender: "them",
-              author: "Emily Chan, CPA",
-              text: replyText,
-              timestamp: "Just now",
-            },
-          ],
-        };
-      });
-    }, 900);
-
-    replyTimeouts.current.push(timeoutId);
-  };
-
-  useEffect(() => {
-    return () => {
-      replyTimeouts.current.forEach((timeoutId) =>
-        window.clearTimeout(timeoutId)
-      );
-    };
+  const handleConversationUpdated = useCallback((updatedConv: ApiConversation) => {
+    setActiveDetail(prev => prev?.id === updatedConv.id ? { ...prev, ...updatedConv } : prev);
   }, []);
 
+  const { messages, setMessages, typingUsers, sendMessage, handleTyping, markRead } = useChat(
+    activeId,
+    getToken,
+    logout,
+    handleConversationUpdated,
+  );
+
+  // Bootstrap: get or create the customer's single conversation
   useEffect(() => {
-    if (messagesContainerRef.current) {
-      messagesContainerRef.current.scrollTop =
-        messagesContainerRef.current.scrollHeight;
+    (async () => {
+      setLoadingList(true);
+      try {
+        const res = await authFetch(`${API_BASE_URL}/api/v1/conversations/my`);
+        if (res.ok) {
+          const data = await res.json();
+          const detail: ApiConversationDetail = data.conversation;
+          setActiveId(detail.id);
+          setActiveDetail(detail);
+          setMessages(detail.messages ?? []);
+          setHasMore((detail.messages?.length ?? 0) >= 30);
+        }
+      } catch (err) {
+        console.error("Failed to bootstrap conversation", err);
+      } finally {
+        setLoadingList(false);
+      }
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Mark as read once conversation loads
+  useEffect(() => {
+    if (activeId && messages.length > 0) {
+      markRead();
     }
-  }, [activeThreadId, activeMessages.length]);
+  }, [activeId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Scroll to bottom on new messages
+  useEffect(() => {
+    if (!loadingMore && messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    }
+  }, [messages.length, activeId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadOlderMessages = useCallback(async () => {
+    if (!activeId || !hasMore || loadingMore || messages.length === 0) return;
+    const oldestId = messages[0].id;
+    setLoadingMore(true);
+    try {
+      const res = await authFetch(
+        `${API_BASE_URL}/api/v1/conversations/${activeId}/messages?before=${oldestId}&limit=30`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setMessages(prev => [...(data.messages ?? []), ...prev]);
+        setHasMore(data.hasMore ?? false);
+      }
+    } catch (err) {
+      console.error("Failed to load older messages", err);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [activeId, hasMore, loadingMore, messages, setMessages]);
+
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    if (e.currentTarget.scrollTop < 60) {
+      loadOlderMessages();
+    }
+  }, [loadOlderMessages]);
+
+  const doSend = () => {
+    const trimmed = messageInput.trim();
+    if (!trimmed) return;
+    sendMessage(trimmed);
+    setMessageInput("");
+  };
+
+  const handleSendMessage = (e: React.FormEvent) => {
+    e.preventDefault();
+    doSend();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      doSend();
+    }
+  };
+
+  const assignedToName = activeDetail?.assignedTo?.name ?? null;
 
   return (
-    <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
-      <div className="col-span-12 xl:col-span-4 rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03] p-6 flex flex-col h-[640px]">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
-          Conversations
-        </h2>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-          Your message threads
-        </p>
-
-        <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
-          <div className="space-y-3">
-            {threads.map((thread) => {
-              const isActive = thread.id === activeThreadId;
-              return (
-                <button
-                  key={thread.id}
-                  type="button"
-                  onClick={() => setActiveThreadId(thread.id)}
-                  className={`w-full text-left rounded-xl border p-4 transition-colors ${
-                    isActive
-                      ? "border-brand-500 bg-brand-50 dark:bg-brand-500/10"
-                      : "border-gray-200 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800/50"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-                      {thread.title}
-                    </h3>
-                    {thread.unread ? (
-                      <span className="h-2 w-2 rounded-full bg-green-500" />
-                    ) : null}
-                  </div>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    {thread.participant}
-                  </p>
-                  <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
-                    {thread.preview}
-                  </p>
-                  <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
-                    {thread.date}
-                  </p>
-                </button>
-              );
-            })}
-          </div>
+    <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03] flex flex-col h-[640px] overflow-hidden">
+      {loadingList ? (
+        <div className="flex-1 flex items-center justify-center">
+          <LuLoader className="h-6 w-6 animate-spin text-emerald-600" />
         </div>
-
-        <button className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800">
-          <LuMessageSquarePlus className="h-4 w-4" />
-          New Message
-        </button>
-      </div>
-
-      <div className="col-span-12 xl:col-span-8 rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03] p-6 flex flex-col h-[640px]">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-              {activeThread?.title ?? "Conversation"}
-            </h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Conversation with {activeThread?.participant ?? "support"}
-            </p>
+      ) : (
+        <>
+          {/* ── Header ── */}
+          <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-500/10 flex-shrink-0">
+                <LuShieldCheck className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <div>
+                <h2 className="text-base font-semibold text-gray-900 dark:text-white leading-tight">
+                  Support Chat
+                </h2>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {assignedToName ? `Assigned to ${assignedToName}` : "MuteTaxes Support Team"}
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
-          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300">
-            active
-          </span>
-        </div>
 
-        <div
-          ref={messagesContainerRef}
-          className="mt-6 flex-1 overflow-y-auto custom-scrollbar pr-2"
-        >
-          <div className="space-y-4">
-            {activeMessages.map((message) => {
-              const isMe = message.sender === "me";
-              return (
-                <div
-                  key={message.id}
-                  className={`flex ${isMe ? "justify-end" : "justify-start"}`}
-                >
-                  <div
-                    className={`max-w-[85%] rounded-xl p-4 ${
-                      isMe
-                        ? "bg-emerald-600 text-white"
-                        : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200"
-                    }`}
-                  >
+          {/* ── Messages ── */}
+          <div
+            ref={messagesContainerRef}
+            onScroll={handleScroll}
+            className="flex-1 overflow-y-auto custom-scrollbar px-6 py-4"
+          >
+            {loadingMore && (
+              <div className="flex items-center justify-center py-3">
+                <LuLoader className="h-4 w-4 animate-spin text-emerald-600" />
+              </div>
+            )}
+
+            {messages.length === 0 && (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-sm text-gray-400 dark:text-gray-500">
+                  No messages yet. Start the conversation!
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-4">
+              {messages.map(msg => {
+                const isMe = msg.senderId === user?.id;
+                return (
+                  <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
                     <div
-                      className={`flex items-center gap-2 text-xs ${
-                        isMe ? "text-emerald-100" : "text-gray-500"
+                      className={`max-w-[75%] rounded-2xl px-4 py-3 ${
+                        isMe
+                          ? "bg-emerald-600 text-white rounded-br-sm"
+                          : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200 rounded-bl-sm"
                       }`}
                     >
-                      <FaRegUser className="h-4 w-4" />
-                      <span className="font-medium">{message.author}</span>
+                      <div className={`flex items-center gap-1.5 text-xs mb-1.5 ${isMe ? "text-emerald-100/80" : "text-gray-400 dark:text-gray-500"}`}>
+                        <FaRegUser className="h-3 w-3" />
+                        <span className="font-medium">{msg.sender.name}</span>
+                      </div>
+                      <p className="text-sm leading-relaxed">{msg.body}</p>
+                      <p className={`mt-1.5 text-xs ${isMe ? "text-emerald-100/60 text-right" : "text-gray-400 dark:text-gray-500"}`}>
+                        {formatTimestamp(msg.createdAt)}
+                      </p>
                     </div>
-                    <p className="mt-2 text-sm">{message.text}</p>
-                    <p
-                      className={`mt-2 text-xs ${
-                        isMe ? "text-emerald-100/80" : "text-gray-400"
-                      }`}
-                    >
-                      {message.timestamp}
+                  </div>
+                );
+              })}
+
+              {typingUsers.length > 0 && (
+                <div className="flex justify-start">
+                  <div className="bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-bl-sm px-4 py-3">
+                    <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+                      {typingUsers.join(", ")} {typingUsers.length === 1 ? "is" : "are"} typing…
                     </p>
                   </div>
                 </div>
-              );
-            })}
+              )}
+            </div>
           </div>
-        </div>
 
-        <form onSubmit={handleSendMessage} className="mt-4">
-          <textarea
-            rows={2}
-            value={messageInput}
-            onChange={(event) => setMessageInput(event.target.value)}
-            placeholder="Type your message..."
-            className="w-full rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700 placeholder:text-gray-400 shadow-theme-xs focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
-          />
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-            <button
-              type="button"
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
-            >
-              <LuPaperclip className="h-4 w-4" />
-              Attach File
-            </button>
-            <button
-              type="submit"
-              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700"
-            >
-              <LuSend className="h-4 w-4" />
-              Send Message
-            </button>
+          {/* ── Input ── */}
+          <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-800">
+            <form onSubmit={handleSendMessage}>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  className="flex-shrink-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                >
+                  <LuPaperclip className="h-5 w-5" />
+                </button>
+                <textarea
+                  rows={1}
+                  value={messageInput}
+                  onChange={e => {
+                    setMessageInput(e.target.value);
+                    handleTyping();
+                  }}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Type your message..."
+                  className="flex-1 resize-none rounded-xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                />
+                <button
+                  type="submit"
+                  disabled={!messageInput.trim()}
+                  className="flex-shrink-0 h-9 w-9 rounded-xl bg-emerald-600 flex items-center justify-center text-white transition-colors hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <LuSend className="h-4 w-4" />
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+                Press Enter to send, Shift + Enter for new line
+              </p>
+            </form>
           </div>
-        </form>
-      </div>
+        </>
+      )}
     </div>
   );
 };
