@@ -74,7 +74,7 @@ function RegisterButton() {
 
   return (
     <a
-      href="http://localhost:5173/company-formation"
+      href="https://register.mutetaxes.com/"
       target="_blank"
       rel="noopener noreferrer"
       aria-disabled={!canCreate}
